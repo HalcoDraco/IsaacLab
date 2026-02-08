@@ -4,9 +4,19 @@
 #
 # Usage:  source scripts/qdax/setup_jax_cuda.sh
 
-NVIDIA_LIBS="${ISAACLAB_PATH:-/workspace/isaaclab}/_isaac_sim/exts/omni.isaac.ml_archive/pip_prebundle/nvidia"
-NEW_CUDNN="/tmp/cudnn_new/nvidia/cudnn/lib"
+# NVIDIA CUDA libs installed by pip (jax[cuda12]) into site-packages
+SITE_NV="${ISAACLAB_PATH:-/workspace/isaaclab}/_isaac_sim/kit/python/lib/python3.11/site-packages/nvidia"
 
-export LD_LIBRARY_PATH="${NEW_CUDNN}:${NVIDIA_LIBS}/cuda_runtime/lib:${NVIDIA_LIBS}/cublas/lib:${NVIDIA_LIBS}/cufft/lib:${NVIDIA_LIBS}/cusolver/lib:${NVIDIA_LIBS}/cusparse/lib:${NVIDIA_LIBS}/cuda_nvrtc/lib:${NVIDIA_LIBS}/cuda_cupti/lib:${NVIDIA_LIBS}/nvjitlink/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="\
+${SITE_NV}/cudnn/lib:\
+${SITE_NV}/cuda_runtime/lib:\
+${SITE_NV}/cublas/lib:\
+${SITE_NV}/cufft/lib:\
+${SITE_NV}/cusolver/lib:\
+${SITE_NV}/cusparse/lib:\
+${SITE_NV}/cuda_nvrtc/lib:\
+${SITE_NV}/cuda_cupti/lib:\
+${SITE_NV}/nvjitlink/lib:\
+${LD_LIBRARY_PATH}"
 
 echo "[INFO] LD_LIBRARY_PATH updated for JAX CUDA support."

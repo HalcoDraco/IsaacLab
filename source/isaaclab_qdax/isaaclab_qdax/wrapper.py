@@ -225,3 +225,35 @@ def make_isaaclab_scoring_fn(
         return fitnesses, descriptors, {"transitions": transitions}
 
     return scoring_fn
+
+
+def make_isaaclab_aurora_scoring_fn(
+    wrapper: IsaacLabQDaxWrapper,
+    policy_fn: Callable[[Params, jax.Array], jax.Array],
+    episode_length: int,
+    descriptor_extractor: Callable[[QDTransition, jax.Array], Descriptor],
+    traj_sampling_freq: int = 10,
+    max_obs_size: int = 25,
+    observations_key: str = "observations",
+) -> Callable[[Genotype, RNGKey], Tuple[Fitness, None, ExtraScores]]:
+    """Build an AURORA-compatible scoring function.
+
+    Like :func:`make_isaaclab_scoring_fn` but also extracts sub-sampled
+    observations for the AURORA autoencoder and returns ``None`` descriptors
+    (AURORA computes them from its learned encoder).
+    """
+    base_fn = make_isaaclab_scoring_fn(
+        wrapper, policy_fn, episode_length, descriptor_extractor,
+    )
+
+    def aurora_scoring_fn(
+        genotypes: Genotype, key: RNGKey,
+    ) -> Tuple[Fitness, None, ExtraScores]:
+        fitnesses, _, extra_scores = base_fn(genotypes, key)
+        transitions = extra_scores["transitions"]
+        # Sub-sample obs trajectory for the AURORA encoder.
+        obs = transitions.obs[:, ::traj_sampling_freq, :max_obs_size]
+        extra_scores[observations_key] = obs
+        return fitnesses, None, extra_scores
+
+    return aurora_scoring_fn
