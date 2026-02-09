@@ -317,7 +317,7 @@ class DirectRLEnv(gym.Env):
         # return observations
         return self._get_observations(), self.extras
 
-    @Timer(name="env_step", msg="Step took:", enable=True, format="us")
+    @Timer(name="env_step", msg="Step took:", enable=False, format="us")
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         """Execute one time-step of the environment's dynamics.
 
@@ -358,12 +358,12 @@ class DirectRLEnv(gym.Env):
         for _ in range(self.cfg.decimation):
             self._sim_step_counter += 1
             # set actions into buffers
-            with Timer(name="apply_action", msg="Action processing step took:", enable=True, format="us"):
+            with Timer(name="apply_action", msg="Action processing step took:", enable=False, format="us"):
                 self._apply_action()
                 # set actions into simulator
                 self.scene.write_data_to_sim()
             # simulate
-            with Timer(name="simulate", msg="Newton simulation step took:", enable=True, format="us"):
+            with Timer(name="simulate", msg="Newton simulation step took:", enable=False, format="us"):
                 self.sim.step(render=False)
             # render between steps only if the GUI or an RTX sensor needs it
             # note: we assume the render interval to be the shortest accepted rendering interval.
@@ -373,7 +373,7 @@ class DirectRLEnv(gym.Env):
             # update buffers at sim dt
             self.scene.update(dt=self.physics_dt)
 
-        with Timer(name="post_processing", msg="Post-Processing step took:", enable=True, format="us"):
+        with Timer(name="post_processing", msg="Post-Processing step took:", enable=False, format="us"):
             # post-step:
             # -- update env counters (used for curriculum generation)
             self.episode_length_buf += 1  # step in current episode (per env)
