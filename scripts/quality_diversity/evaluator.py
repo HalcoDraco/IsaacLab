@@ -94,17 +94,17 @@ class Evaluator:
         assert batch_size <= self.num_envs
 
         # Transfer parameters to GPU once per generation.
-        stacked = torch.as_tensor(
+        stacked = torch.as_tensor(                          # (batch, param_dim)
             flat_params_np, dtype=torch.float32, device=self.device,
         )
         if batch_size < self.num_envs:
-            pad = torch.zeros(
+            pad = torch.zeros(                              # (pad, param_dim)
                 self.num_envs - batch_size, self.param_dim,
                 dtype=torch.float32, device=self.device,
             )
-            stacked = torch.cat([stacked, pad], dim=0)
+            stacked = torch.cat([stacked, pad], dim=0)      # (N, param_dim)
 
-        obj, meas = self._rollout(stacked, transition_cb)
+        obj, meas = self._rollout(stacked, transition_cb)   # (N,), (N, measure_dim)
         return obj[:batch_size].cpu().numpy(), meas[:batch_size].cpu().numpy()
 
     # ---- internal ---------------------------------------------------------
@@ -119,15 +119,15 @@ class Evaluator:
         N = self.num_envs
         obs = self.env.reset()[0]["policy"]            # (N, obs_dim)
 
-        cum_reward = torch.zeros(N, device=self.device)
-        done_mask  = torch.zeros(N, dtype=torch.bool, device=self.device)
+        cum_reward = torch.zeros(N, device=self.device)                # (N,)
+        done_mask  = torch.zeros(N, dtype=torch.bool, device=self.device)  # (N,)
         self.measure_fn.reset(N, self.device)
 
         for _ in range(self.max_steps):
-            actions = self._batched_fwd(stacked_params, obs)
+            actions = self._batched_fwd(stacked_params, obs)  # (N, action_dim)
             obs_dict, rewards, terminated, truncated, info = self.env.step(actions)
-            next_obs = obs_dict["policy"]
-            dones = terminated | truncated
+            next_obs = obs_dict["policy"]                     # (N, obs_dim)
+            dones = terminated | truncated                     # (N,)
 
             # Collect transitions for active (first-episode) envs.
             if transition_cb is not None:

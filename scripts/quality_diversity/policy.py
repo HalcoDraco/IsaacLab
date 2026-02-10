@@ -32,7 +32,7 @@ class MLPPolicy(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        return self.net(obs)
+        return self.net(obs)  # (*, obs_dim) → (*, action_dim)
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ def count_params(model: nn.Module) -> int:
 
 def flat_params(model: nn.Module) -> torch.Tensor:
     """Return all parameters as a single 1-D tensor (detached, on same device)."""
-    return torch.cat([p.data.reshape(-1) for p in model.parameters()])
+    return torch.cat([p.data.reshape(-1) for p in model.parameters()])  # (param_dim,)
 
 
 def load_flat_params(model: nn.Module, flat: torch.Tensor) -> None:

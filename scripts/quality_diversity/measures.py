@@ -10,7 +10,6 @@ All operations stay on the GPU — no CPU transfers happen here.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 
 import torch
 
@@ -58,14 +57,14 @@ class FinalXYPosition(MeasureFunction):
         return 2
 
     def reset(self, num_envs: int, device: torch.device) -> None:
-        self._pos = torch.zeros(num_envs, 3, device=device)
+        self._pos = torch.zeros(num_envs, 3, device=device)  # (N, 3)
 
     def update(self, obs, actions, rewards, terminated, truncated, info):
         if "root_pos" in info:
-            self._pos = info["root_pos"].clone()
+            self._pos = info["root_pos"].clone()  # (N, 3)
 
     def compute(self) -> torch.Tensor:
-        return self._pos[:, :2]  # (num_envs, 2)
+        return self._pos[:, :2]  # (N, 2)
 
 
 class MeanXYVelocity(MeasureFunction):
@@ -79,17 +78,17 @@ class MeanXYVelocity(MeasureFunction):
         return 2
 
     def reset(self, num_envs: int, device: torch.device) -> None:
-        self._vel_sum = torch.zeros(num_envs, 3, device=device)
-        self._count = torch.zeros(num_envs, 1, device=device)
+        self._vel_sum = torch.zeros(num_envs, 3, device=device)  # (N, 3)
+        self._count = torch.zeros(num_envs, 1, device=device)    # (N, 1)
 
     def update(self, obs, actions, rewards, terminated, truncated, info):
         if "root_lin_vel" in info:
-            self._vel_sum += info["root_lin_vel"]
+            self._vel_sum += info["root_lin_vel"]  # (N, 3)
             self._count += 1
 
     def compute(self) -> torch.Tensor:
-        mean_vel = self._vel_sum / self._count.clamp(min=1)
-        return mean_vel[:, :2]  # (num_envs, 2)
+        mean_vel = self._vel_sum / self._count.clamp(min=1)  # (N, 3)
+        return mean_vel[:, :2]  # (N, 2)
 
 
 class ObservationSlice(MeasureFunction):
@@ -107,15 +106,15 @@ class ObservationSlice(MeasureFunction):
         return len(self._indices)
 
     def reset(self, num_envs: int, device: torch.device) -> None:
-        self._sum = torch.zeros(num_envs, self.dim, device=device)
-        self._count = torch.zeros(num_envs, 1, device=device)
+        self._sum = torch.zeros(num_envs, self.dim, device=device)  # (N, dim)
+        self._count = torch.zeros(num_envs, 1, device=device)       # (N, 1)
 
     def update(self, obs, actions, rewards, terminated, truncated, info):
-        self._sum += obs[:, self._indices]
+        self._sum += obs[:, self._indices]  # (N, dim)
         self._count += 1
 
     def compute(self) -> torch.Tensor:
-        return self._sum / self._count.clamp(min=1)
+        return self._sum / self._count.clamp(min=1)  # (N, dim)
 
 
 class MeanActionMagnitude(MeasureFunction):
@@ -126,15 +125,51 @@ class MeanActionMagnitude(MeasureFunction):
         return 1
 
     def reset(self, num_envs: int, device: torch.device) -> None:
-        self._sum = torch.zeros(num_envs, device=device)
-        self._count = torch.zeros(num_envs, device=device)
+        self._sum = torch.zeros(num_envs, device=device)    # (N,)
+        self._count = torch.zeros(num_envs, device=device)  # (N,)
 
     def update(self, obs, actions, rewards, terminated, truncated, info):
-        self._sum += actions.abs().mean(dim=-1)
+        self._sum += actions.abs().mean(dim=-1)  # (N,)
         self._count += 1
 
     def compute(self) -> torch.Tensor:
-        return (self._sum / self._count.clamp(min=1)).unsqueeze(-1)
+        return (self._sum / self._count.clamp(min=1)).unsqueeze(-1)  # (N, 1)
+
+
+class CartpoleMeasure(MeasureFunction):
+    """Measure for IsaacLab Cartpole: (mean cart pos, mean |cart vel|).
+
+    IsaacLab Cartpole observation layout:
+        [0] pole angle       (rad)
+        [1] pole angular vel (rad/s)
+        [2] cart position    (m)
+        [3] cart velocity    (m/s)
+
+    The two behavioural descriptors are:
+        - Time-averaged cart position   (obs index 2).
+        - Time-averaged |cart velocity| (|obs index 3|).
+    """
+
+    @property
+    def dim(self) -> int:
+        return 2
+
+    def reset(self, num_envs: int, device: torch.device) -> None:
+        self._pos_sum = torch.zeros(num_envs, device=device)  # (N,)
+        self._vel_sum = torch.zeros(num_envs, device=device)  # (N,)
+        self._count = torch.zeros(num_envs, device=device)    # (N,)
+
+    def update(self, obs, actions, rewards, terminated, truncated, info):
+        # obs: (N, 4)
+        self._pos_sum += obs[:, 2]        # cart position
+        self._vel_sum += obs[:, 3].abs()  # |cart velocity|
+        self._count += 1
+
+    def compute(self) -> torch.Tensor:
+        c = self._count.clamp(min=1)  # (N,)
+        mean_pos = self._pos_sum / c  # (N,)
+        mean_vel = self._vel_sum / c  # (N,)
+        return torch.stack([mean_pos, mean_vel], dim=-1)  # (N, 2)
 
 
 # ---------------------------------------------------------------------------
