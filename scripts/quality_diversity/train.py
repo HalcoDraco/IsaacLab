@@ -239,19 +239,26 @@ def main():
     for gen in range(1, args.generations + 1):
         t_start = time.perf_counter()
 
-        solutions = scheduler.ask()                          # (batch, param_dim)
-        objectives, measures = evaluator.evaluate(           # GPU rollouts
+        solutions = scheduler.ask()
+        t_ask = time.perf_counter()
+
+        objectives, measures = evaluator.evaluate(
             solutions, transition_cb=transition_cb,
         )
-        scheduler.tell(objectives, measures)                 # feed back to pyribs
+        t_eval = time.perf_counter()
 
-        elapsed = time.perf_counter() - t_start
+        scheduler.tell(objectives, measures)
+        t_tell = time.perf_counter()
 
         if gen % args.log_interval == 0:
             stats = archive.stats
+            elapsed = t_tell - t_start
             print(
                 f"Gen {gen:>4d}  |  "
-                f"{elapsed:5.1f}s  |  "
+                f"{elapsed:5.1f}s  "
+                f"(ask {t_ask - t_start:.2f}  "
+                f"eval {t_eval - t_ask:.2f}  "
+                f"tell {t_tell - t_eval:.2f})  |  "
                 f"archive: {len(archive):>5d}  |  "
                 f"coverage: {len(archive) / archive.cells * 100:5.1f}%  |  "
                 f"best: {stats.obj_max:+8.2f}  |  "

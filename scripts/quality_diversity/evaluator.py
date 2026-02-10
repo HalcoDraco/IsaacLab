@@ -9,6 +9,9 @@ consume them.
 Design: the environment auto-resets terminated sub-environments, but we
 accumulate reward only for the **first** episode of each env.  This way
 ``num_envs`` policies are each scored for exactly one episode.
+
+Transitions for the PGA critic are accumulated on-GPU during the rollout and
+returned in bulk — no per-step GPU→CPU synchronisation.
 """
 
 from __future__ import annotations
@@ -18,11 +21,12 @@ from typing import Callable
 import numpy as np
 import torch
 
-from policy import MLPPolicy, make_batched_forward, count_params
 from measures import MeasureFunction
+from policy import MLPPolicy, count_params, make_batched_forward
 
 
-# Type alias for the transition callback used by PGA-MAP-Elites.
+# Type alias for the bulk transition callback used by PGA-MAP-Elites.
+# Called *once* after rollout with all first-episode transitions.
 TransitionCallback = Callable[
     [torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
     None,
@@ -60,6 +64,8 @@ class Evaluator:
         self.num_envs = env.unwrapped.num_envs
         self.max_steps = max_steps
         self.measure_fn = measure_fn
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
 
         # Build a template policy (weights irrelevant — only structure matters).
         template = MLPPolicy(obs_dim, action_dim, hidden).to(self.device)
@@ -80,10 +86,8 @@ class Evaluator:
         flat_params_np : shape ``(batch_size, param_dim)``
             Flattened policy parameters coming from pyribs.
         transition_cb : optional
-            If provided, called at every step with
-            ``(obs, actions, rewards, next_obs, dones)`` for envs still in
-            their first episode.  Used by PGA-MAP-Elites to fill the replay
-            buffer without duplicating the rollout.
+            If provided, called **once** after the rollout with the full
+            buffer of first-episode transitions collected on-GPU.
 
         Returns
         -------
@@ -94,17 +98,23 @@ class Evaluator:
         assert batch_size <= self.num_envs
 
         # Transfer parameters to GPU once per generation.
-        stacked = torch.as_tensor(                          # (batch, param_dim)
+        stacked = torch.as_tensor(
             flat_params_np, dtype=torch.float32, device=self.device,
         )
         if batch_size < self.num_envs:
-            pad = torch.zeros(                              # (pad, param_dim)
+            pad = torch.zeros(
                 self.num_envs - batch_size, self.param_dim,
                 dtype=torch.float32, device=self.device,
             )
-            stacked = torch.cat([stacked, pad], dim=0)      # (N, param_dim)
+            stacked = torch.cat([stacked, pad], dim=0)
 
-        obj, meas = self._rollout(stacked, transition_cb)   # (N,), (N, measure_dim)
+        collect = transition_cb is not None
+        obj, meas, transitions = self._rollout(stacked, collect)
+
+        # Bulk-transfer transitions to the PGA emitter (single GPU→CPU copy).
+        if transition_cb is not None and transitions is not None:
+            transition_cb(*transitions)
+
         return obj[:batch_size].cpu().numpy(), meas[:batch_size].cpu().numpy()
 
     # ---- internal ---------------------------------------------------------
@@ -113,39 +123,71 @@ class Evaluator:
     def _rollout(
         self,
         stacked_params: torch.Tensor,
-        transition_cb: TransitionCallback | None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """One-episode rollout, entirely on GPU."""
-        N = self.num_envs
-        obs = self.env.reset()[0]["policy"]            # (N, obs_dim)
+        collect_transitions: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor, tuple | None]:
+        """One-episode rollout, entirely on GPU.
 
-        cum_reward = torch.zeros(N, device=self.device)                # (N,)
-        done_mask  = torch.zeros(N, dtype=torch.bool, device=self.device)  # (N,)
+        When *collect_transitions* is True, first-episode transitions are
+        accumulated in pre-allocated GPU buffers and returned in bulk —
+        avoiding the per-step GPU→CPU sync that was the main bottleneck.
+        """
+        N = self.num_envs
+        obs = self.env.reset()[0]["policy"]  # (N, obs_dim)
+
+        cum_reward = torch.zeros(N, device=self.device)
+        done_mask = torch.zeros(N, dtype=torch.bool, device=self.device)
         self.measure_fn.reset(N, self.device)
 
-        for _ in range(self.max_steps):
-            actions = self._batched_fwd(stacked_params, obs)  # (N, action_dim)
+        # Pre-allocate GPU transition buffers (only if needed).
+        if collect_transitions:
+            buf_obs = torch.empty(self.max_steps, N, self.obs_dim, device=self.device)
+            buf_act = torch.empty(self.max_steps, N, self.action_dim, device=self.device)
+            buf_rew = torch.empty(self.max_steps, N, device=self.device)
+            buf_nobs = torch.empty(self.max_steps, N, self.obs_dim, device=self.device)
+            buf_done = torch.empty(self.max_steps, N, device=self.device)
+            buf_mask = torch.empty(self.max_steps, N, dtype=torch.bool, device=self.device)
+
+        step = 0
+        for step in range(self.max_steps):
+            actions = self._batched_fwd(stacked_params, obs)
             obs_dict, rewards, terminated, truncated, info = self.env.step(actions)
-            next_obs = obs_dict["policy"]                     # (N, obs_dim)
-            dones = terminated | truncated                     # (N,)
+            next_obs = obs_dict["policy"]
+            dones = terminated | truncated
 
-            # Collect transitions for active (first-episode) envs.
-            if transition_cb is not None:
-                active = ~done_mask
-                if active.any():
-                    idx = active.nonzero(as_tuple=True)[0]
-                    transition_cb(
-                        obs[idx], actions[idx], rewards[idx],
-                        next_obs[idx], dones[idx].float(),
-                    )
+            # Only accumulate first-episode data.
+            active = ~done_mask
 
-            cum_reward += rewards * (~done_mask).float()
+            if collect_transitions:
+                buf_obs[step] = obs
+                buf_act[step] = actions
+                buf_rew[step] = rewards
+                buf_nobs[step] = next_obs
+                buf_done[step] = dones.float()
+                buf_mask[step] = active
+
+            cum_reward += rewards * active.float()
             self.measure_fn.update(next_obs, actions, rewards,
-                                   terminated, truncated, info)
+                                   terminated, truncated, info, active)
             done_mask |= dones.bool()
             obs = next_obs
 
             if done_mask.all():
                 break
 
-        return cum_reward, self.measure_fn.compute()
+        T = step + 1  # actual number of steps taken
+
+        # Flatten and filter transitions (GPU-only, single bulk operation).
+        transitions = None
+        if collect_transitions:
+            mask_flat = buf_mask[:T].reshape(-1)
+            if mask_flat.any():
+                idx = mask_flat.nonzero(as_tuple=True)[0]
+                transitions = (
+                    buf_obs[:T].reshape(-1, self.obs_dim)[idx],
+                    buf_act[:T].reshape(-1, self.action_dim)[idx],
+                    buf_rew[:T].reshape(-1)[idx],
+                    buf_nobs[:T].reshape(-1, self.obs_dim)[idx],
+                    buf_done[:T].reshape(-1)[idx],
+                )
+
+        return cum_reward, self.measure_fn.compute(), transitions

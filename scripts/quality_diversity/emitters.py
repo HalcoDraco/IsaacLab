@@ -9,6 +9,10 @@ At each ``ask()`` it samples elites from the archive and runs a few steps
 of deterministic policy-gradient ascent (maximising Q) to produce improved
 candidate solutions.  At each ``tell()`` it trains the SB3 model's critic.
 
+The PG improvement is **batched**: all elites are improved simultaneously
+using a single shared critic, avoiding the sequential per-elite loop that
+was the main bottleneck.
+
 The emitter plugs into pyribs' standard ``ask / tell`` interface.
 """
 
@@ -25,11 +29,9 @@ from stable_baselines3 import SAC, TD3
 from stable_baselines3.common.logger import configure as sb3_configure_logger
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from policy import MLPPolicy, count_params, flat_params, load_flat_params
+from policy import MLPPolicy, count_params, flat_params
 
 # Off-policy algorithms with a Q-function critic.
-# On-policy algorithms (e.g. PPO) are incompatible: PGA-MAP-Elites needs an
-# off-policy replay buffer and a Q(s,a) critic for policy-gradient ascent.
 _RL_ALGORITHMS: dict[str, type] = {"TD3": TD3, "SAC": SAC}
 
 
@@ -104,8 +106,14 @@ class PGAEmitter(EmitterBase):
         self._device = torch.device(device)
 
         # Template policy — only used for param counting + PG improvement.
-        template = MLPPolicy(obs_dim, action_dim, policy_hidden).to(self._device)
-        solution_dim = count_params(template)  # scalar
+        self._template = MLPPolicy(obs_dim, action_dim, policy_hidden).to(self._device)
+        solution_dim = count_params(self._template)
+
+        # Cache parameter structure and build vmapped forward for PG improvement.
+        self._param_names = [n for n, _ in self._template.named_parameters()]
+        self._param_shapes = [p.shape for p in self._template.parameters()]
+        self._param_numel = [p.numel() for p in self._template.parameters()]
+        self._pg_batched_fwd = self._make_pg_batched_fwd()
 
         super().__init__(
             archive,
@@ -151,7 +159,7 @@ class PGAEmitter(EmitterBase):
             _make_dummy_env(obs_space, act_space),
             **sb3_kwargs,
         )
-        # Silence SB3 logging (logger is None by default → would crash on train).
+        # Silence SB3 logging.
         self._rl.set_logger(sb3_configure_logger(format_strings=[]))
 
     # -- pyribs interface ---------------------------------------------------
@@ -161,11 +169,11 @@ class PGAEmitter(EmitterBase):
         return self._batch_size
 
     def ask(self) -> np.ndarray:
-        """Return ``batch_size`` improved solutions — shape ``(batch_size, param_dim)``."""
+        """Return ``batch_size`` improved solutions."""
         if self.archive.empty or self._buffer_size() < self._critic_batch:
-            return self._random_solutions()  # (batch_size, param_dim)
+            return self._random_solutions()
         elites = self.archive.sample_elites(self._batch_size)["solution"]
-        return self._pg_improve(elites)  # (batch_size, param_dim)
+        return self._pg_improve(elites)
 
     def tell(self, solution, objective, measures, add_info, **fields) -> None:
         """Receive results and train the SB3 critic."""
@@ -175,42 +183,54 @@ class PGAEmitter(EmitterBase):
                 batch_size=self._critic_batch,
             )
 
-    # -- replay buffer (called via transition_cb during evaluation) ---------
+    # -- replay buffer (called via transition_cb after rollout) -------------
 
     def add_transitions(
         self,
-        obs: torch.Tensor,       # (B, obs_dim)
-        actions: torch.Tensor,   # (B, action_dim)
-        rewards: torch.Tensor,   # (B,)
-        next_obs: torch.Tensor,  # (B, obs_dim)
-        dones: torch.Tensor,     # (B,)
+        obs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        next_obs: torch.Tensor,
+        dones: torch.Tensor,
     ) -> None:
-        """Batch-write GPU-resident transitions into SB3's replay buffer."""
+        """Bulk-write GPU-resident transitions into SB3's replay buffer.
+
+        Called **once per generation** with all first-episode transitions
+        collected during the GPU rollout.
+        """
         n = obs.shape[0]
         if n == 0:
             return
 
-        # GPU → CPU (negligible cost: a few KB per step).
-        obs_np = obs.cpu().numpy()       # (B, obs_dim)
-        act_np = actions.cpu().numpy()   # (B, action_dim)
-        rew_np = rewards.cpu().numpy()   # (B,)
-        nobs_np = next_obs.cpu().numpy() # (B, obs_dim)
-        done_np = dones.cpu().numpy()    # (B,)
+        # Single GPU→CPU transfer of all transitions at once.
+        obs_np = obs.cpu().numpy()
+        act_np = actions.cpu().numpy()
+        rew_np = rewards.cpu().numpy()
+        nobs_np = next_obs.cpu().numpy()
+        done_np = dones.cpu().numpy()
 
         # Direct batch insertion into the SB3 ring buffer.
         buf = self._rl.replay_buffer
-        idxs = np.arange(buf.pos, buf.pos + n) % buf.buffer_size
-        buf.observations[idxs, 0] = obs_np
-        buf.next_observations[idxs, 0] = nobs_np
-        buf.actions[idxs, 0] = act_np
-        buf.rewards[idxs, 0] = rew_np
-        buf.dones[idxs, 0] = done_np
-        if hasattr(buf, "timeouts"):
-            buf.timeouts[idxs, 0] = 0.0
-
-        if buf.pos + n >= buf.buffer_size:
-            buf.full = True
-        buf.pos = (buf.pos + n) % buf.buffer_size
+        # Process in chunks that fit within the ring buffer.
+        remaining = n
+        src_offset = 0
+        while remaining > 0:
+            space = buf.buffer_size - buf.pos
+            chunk = min(remaining, space)
+            end = buf.pos + chunk
+            sl = slice(src_offset, src_offset + chunk)
+            buf.observations[buf.pos:end, 0] = obs_np[sl]
+            buf.next_observations[buf.pos:end, 0] = nobs_np[sl]
+            buf.actions[buf.pos:end, 0] = act_np[sl]
+            buf.rewards[buf.pos:end, 0] = rew_np[sl]
+            buf.dones[buf.pos:end, 0] = done_np[sl]
+            if hasattr(buf, "timeouts"):
+                buf.timeouts[buf.pos:end, 0] = 0.0
+            buf.pos = (buf.pos + chunk) % buf.buffer_size
+            if end >= buf.buffer_size:
+                buf.full = True
+            src_offset += chunk
+            remaining -= chunk
 
     # -- internals ----------------------------------------------------------
 
@@ -220,8 +240,12 @@ class PGAEmitter(EmitterBase):
         return buf.buffer_size if buf.full else buf.pos
 
     def _random_solutions(self) -> np.ndarray:
-        """Emit randomly initialised policy parameters (warm-up)."""
-        return np.stack([                                        # (batch_size, param_dim)
+        """Emit randomly initialised policy parameters (warm-up).
+
+        Uses a single template and generates random weights in bulk via
+        torch instead of creating individual MLPPolicy instances.
+        """
+        return np.stack([
             flat_params(
                 MLPPolicy(self._obs_dim, self._action_dim, self._policy_hidden)
             ).numpy()
@@ -229,43 +253,61 @@ class PGAEmitter(EmitterBase):
         ])
 
     def _pg_improve(self, elite_params_np: np.ndarray) -> np.ndarray:
-        """Improve each elite via ∇_θ Q₁(s, π_θ(s)) ascent.
+        """Improve elites via batched ∇_θ Q₁(s, π_θ(s)) ascent.
 
-        For each elite:
-        1. Load flat params into a fresh policy.
-        2. Run ``pg_steps`` Adam iterations maximising Q₁.
-        3. Flatten back to numpy.
+        Uses ``torch.vmap`` over the flat parameter tensor so all elites
+        are forward-passed through the policy and critic in a single fused
+        GPU operation per PG step, avoiding the sequential per-elite loop.
         """
-        B = elite_params_np.shape[0]          # batch_size
-        results = np.empty_like(elite_params_np)  # (B, param_dim)
+        B = elite_params_np.shape[0]
 
-        for i in range(B):
-            policy = MLPPolicy(
-                self._obs_dim, self._action_dim, self._policy_hidden,
-            ).to(self._device)
-            load_flat_params(
-                policy,
-                torch.as_tensor(
-                    elite_params_np[i],  # (param_dim,)
-                    dtype=torch.float32,
-                    device=self._device,
-                ),
-            )
-            opt = torch.optim.Adam(policy.parameters(), lr=self._actor_lr)
+        # All elite params as a single (B, param_dim) leaf tensor.
+        all_params = torch.tensor(
+            elite_params_np, dtype=torch.float32, device=self._device,
+        ).requires_grad_(True)
 
-            for _ in range(self._pg_steps):
-                # Sample obs from SB3's buffer (already on self._device).
-                data = self._rl.replay_buffer.sample(self._critic_batch)
-                obs_b = data.observations           # (critic_batch, obs_dim)
-                actions_b = policy(obs_b)            # (critic_batch, action_dim)
-                q_val = self._rl.critic.q1_forward(  # (critic_batch, 1)
-                    obs_b, actions_b,
-                )
-                loss = -q_val.mean()                 # scalar
-                opt.zero_grad()
-                loss.backward()
-                opt.step()
+        opt = torch.optim.Adam([all_params], lr=self._actor_lr)
 
-            results[i] = flat_params(policy).cpu().numpy()  # (param_dim,)
+        for _ in range(self._pg_steps):
+            data = self._rl.replay_buffer.sample(self._critic_batch)
+            obs_b = data.observations  # (S, obs_dim)
+            S = obs_b.shape[0]
 
-        return results
+            # Batched policy forward: (B, S, act_dim).
+            all_actions = self._pg_batched_fwd(all_params, obs_b)
+
+            # Expand obs to match, then single big critic forward.
+            obs_flat = obs_b.unsqueeze(0).expand(B, -1, -1).reshape(B * S, -1)
+            act_flat = all_actions.reshape(B * S, -1)
+            q_vals = self._rl.critic.q1_forward(obs_flat, act_flat)  # (B*S, 1)
+            loss = -q_vals.mean()
+
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+        return all_params.detach().cpu().numpy()
+
+    def _make_pg_batched_fwd(self):
+        """Build a vmapped forward for batched PG improvement.
+
+        The returned callable maps ``(B, param_dim), (S, obs_dim) → (B, S, act_dim)``
+        by vmapping over the first (policy batch) dimension only.
+        """
+        template = self._template
+        names = self._param_names
+        shapes = self._param_shapes
+        numel = self._param_numel
+
+        def _unflatten(flat: torch.Tensor) -> dict[str, torch.Tensor]:
+            params: dict[str, torch.Tensor] = {}
+            offset = 0
+            for n, s, c in zip(names, shapes, numel):
+                params[n] = flat[offset : offset + c].reshape(s)
+                offset += c
+            return params
+
+        def _single_fwd(flat_p: torch.Tensor, obs: torch.Tensor) -> torch.Tensor:
+            return torch.func.functional_call(template, _unflatten(flat_p), obs)
+
+        return torch.vmap(_single_fwd, in_dims=(0, None))

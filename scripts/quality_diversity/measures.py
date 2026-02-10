@@ -5,6 +5,9 @@ reduces it to a fixed-size descriptor vector at the end of the episode.
 Multiple measures can be composed via ``CompositeMeasure``.
 
 All operations stay on the GPU — no CPU transfers happen here.
+
+The ``update`` method receives an *active* mask so that only first-episode
+data is accumulated (environments auto-reset after termination).
 """
 
 from __future__ import annotations
@@ -33,8 +36,14 @@ class MeasureFunction(ABC):
     @abstractmethod
     def update(self, obs: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor,
                terminated: torch.Tensor, truncated: torch.Tensor,
-               info: dict) -> None:
-        """Accumulate data from one environment step."""
+               info: dict, active: torch.Tensor) -> None:
+        """Accumulate data from one environment step.
+
+        Parameters
+        ----------
+        active : (N,) bool tensor
+            True for envs still in their first episode.
+        """
 
     @abstractmethod
     def compute(self) -> torch.Tensor:
@@ -59,9 +68,11 @@ class FinalXYPosition(MeasureFunction):
     def reset(self, num_envs: int, device: torch.device) -> None:
         self._pos = torch.zeros(num_envs, 3, device=device)  # (N, 3)
 
-    def update(self, obs, actions, rewards, terminated, truncated, info):
+    def update(self, obs, actions, rewards, terminated, truncated, info, active):
         if "root_pos" in info:
-            self._pos = info["root_pos"].clone()  # (N, 3)
+            # Only update positions for envs still in their first episode.
+            mask = active.unsqueeze(-1)  # (N, 1)
+            self._pos = torch.where(mask, info["root_pos"], self._pos)
 
     def compute(self) -> torch.Tensor:
         return self._pos[:, :2]  # (N, 2)
@@ -81,10 +92,11 @@ class MeanXYVelocity(MeasureFunction):
         self._vel_sum = torch.zeros(num_envs, 3, device=device)  # (N, 3)
         self._count = torch.zeros(num_envs, 1, device=device)    # (N, 1)
 
-    def update(self, obs, actions, rewards, terminated, truncated, info):
+    def update(self, obs, actions, rewards, terminated, truncated, info, active):
         if "root_lin_vel" in info:
-            self._vel_sum += info["root_lin_vel"]  # (N, 3)
-            self._count += 1
+            mask = active.unsqueeze(-1)  # (N, 1)
+            self._vel_sum += info["root_lin_vel"] * mask
+            self._count += active.unsqueeze(-1).float()
 
     def compute(self) -> torch.Tensor:
         mean_vel = self._vel_sum / self._count.clamp(min=1)  # (N, 3)
@@ -109,9 +121,10 @@ class ObservationSlice(MeasureFunction):
         self._sum = torch.zeros(num_envs, self.dim, device=device)  # (N, dim)
         self._count = torch.zeros(num_envs, 1, device=device)       # (N, 1)
 
-    def update(self, obs, actions, rewards, terminated, truncated, info):
-        self._sum += obs[:, self._indices]  # (N, dim)
-        self._count += 1
+    def update(self, obs, actions, rewards, terminated, truncated, info, active):
+        mask = active.unsqueeze(-1)  # (N, 1)
+        self._sum += obs[:, self._indices] * mask
+        self._count += active.unsqueeze(-1).float()
 
     def compute(self) -> torch.Tensor:
         return self._sum / self._count.clamp(min=1)  # (N, dim)
@@ -128,9 +141,9 @@ class MeanActionMagnitude(MeasureFunction):
         self._sum = torch.zeros(num_envs, device=device)    # (N,)
         self._count = torch.zeros(num_envs, device=device)  # (N,)
 
-    def update(self, obs, actions, rewards, terminated, truncated, info):
-        self._sum += actions.abs().mean(dim=-1)  # (N,)
-        self._count += 1
+    def update(self, obs, actions, rewards, terminated, truncated, info, active):
+        self._sum += actions.abs().mean(dim=-1) * active.float()
+        self._count += active.float()
 
     def compute(self) -> torch.Tensor:
         return (self._sum / self._count.clamp(min=1)).unsqueeze(-1)  # (N, 1)
@@ -159,11 +172,12 @@ class CartpoleMeasure(MeasureFunction):
         self._vel_sum = torch.zeros(num_envs, device=device)  # (N,)
         self._count = torch.zeros(num_envs, device=device)    # (N,)
 
-    def update(self, obs, actions, rewards, terminated, truncated, info):
-        # obs: (N, 4)
-        self._pos_sum += obs[:, 2]        # cart position
-        self._vel_sum += obs[:, 3].abs()  # |cart velocity|
-        self._count += 1
+    def update(self, obs, actions, rewards, terminated, truncated, info, active):
+        # obs: (N, 4) — only accumulate for first-episode envs.
+        a = active.float()
+        self._pos_sum += obs[:, 2] * a
+        self._vel_sum += obs[:, 3].abs() * a
+        self._count += a
 
     def compute(self) -> torch.Tensor:
         c = self._count.clamp(min=1)  # (N,)
@@ -190,9 +204,9 @@ class CompositeMeasure(MeasureFunction):
         for m in self._measures:
             m.reset(num_envs, device)
 
-    def update(self, obs, actions, rewards, terminated, truncated, info):
+    def update(self, obs, actions, rewards, terminated, truncated, info, active):
         for m in self._measures:
-            m.update(obs, actions, rewards, terminated, truncated, info)
+            m.update(obs, actions, rewards, terminated, truncated, info, active)
 
     def compute(self) -> torch.Tensor:
         parts = [m.compute() for m in self._measures]
