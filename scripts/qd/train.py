@@ -9,7 +9,7 @@ parser.add_argument(
 parser.add_argument("--num_envs", type=int, default=100, help="Number of environments (= MAP-Elites batch size).")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--num_iterations", type=int, default=100, help="Number of MAP-Elites iterations.")
-parser.add_argument("--episode_length", type=int, default=200, help="Max steps per evaluation episode.")
+parser.add_argument("--episode_length", type=int, default=300, help="Max steps per evaluation episode.")
 parser.add_argument("--seed", type=int, default=42, help="Random seed.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -186,15 +186,20 @@ def main():
     csv_logger = CSVLogger("mapelites-logs.csv", header=list(log_metrics.keys()))
 
     print(f"[INFO] Starting MAP-Elites for {num_iterations} iterations")
+    global_start_time = time.perf_counter()
     for i in range(num_iterations):
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         # ASK: generate candidate genotypes (JAX, JIT-compiled)
         key, subkey = jax.random.split(key)
         genotypes, extra_info = ask_fn(repertoire, emitter_state, subkey)
 
+        ask_time = time.perf_counter() - start_time
+
         # EVALUATE: run candidates in IsaacLab (PyTorch, not JIT)
         fitnesses, descriptors, extra_scores = evaluate_genotypes(genotypes)
+
+        eval_time = time.perf_counter() - start_time - ask_time
 
         # TELL: update the repertoire (JAX, JIT-compiled)
         repertoire, emitter_state, current_metrics = tell_fn(
@@ -207,7 +212,8 @@ def main():
             extra_info=extra_info,
         )
 
-        elapsed = time.time() - start_time
+        elapsed = time.perf_counter() - start_time
+        tell_time = elapsed - ask_time - eval_time
 
         # Log metrics
         current_metrics["iteration"] = i
@@ -225,9 +231,11 @@ def main():
             f"max_fitness={float(current_metrics['max_fitness'][0]):.2f} | "
             f"coverage={float(current_metrics['coverage'][0]):.4f} | "
             f"qd_score={float(current_metrics['qd_score'][0]):.2f} | "
-            f"time={elapsed:.2f}s"
+            f"time={elapsed:.2f}s (ask={ask_time:.2f}s, eval={eval_time:.2f}s, tell={tell_time:.2f}s)"
         )
 
+    global_elapsed = time.perf_counter() - global_start_time
+    print(f"[INFO] MAP-Elites completed {num_iterations} iterations in {global_elapsed:.2f}s.")
     print("[INFO] Training complete.")
     env.close()
 

@@ -36,6 +36,7 @@ import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 
 # PLACEHOLDER: Extension template (do not remove this comment)
+import time
 
 
 def main():
@@ -52,6 +53,9 @@ def main():
     print(f"[INFO]: Gym action space: {env.action_space}")
     # reset environment
     env.reset()
+
+    step = 1
+    time1 = time.perf_counter()
     # simulate environment
     while simulation_app.is_running():
         # run everything in inference mode
@@ -60,6 +64,12 @@ def main():
             actions = 2 * torch.rand(env.action_space.shape, device=env.unwrapped.device) - 1
             # apply actions
             env.step(actions)
+
+            if step % 100 == 0:
+                elapsed = time.perf_counter() - time1
+                print(f"[INFO] Steps/s: {100/elapsed:.2f}")
+                time1 = time.perf_counter()
+        step += 1
 
     # close the simulator
     env.close()
