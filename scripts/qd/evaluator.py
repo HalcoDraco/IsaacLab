@@ -2,17 +2,19 @@ from batched_policy import BatchedPolicy
 import torch
 from typing import Callable, Optional
 
+import jax
+import jax.numpy as jnp
 
-class Evaluator:
-    """Evaluates a batch of policies in an IsaacLab vectorized environment.
 
-    Each policy is assigned to one environment instance. All policies are
-    evaluated in parallel using the BatchedPolicy's vmapped forward pass.
+class JaxEvaluator:
+    """Evaluates batched JAX (Flax) policies in an IsaacLab vectorized environment.
+
+    Uses DLPack for zero-copy JAX <-> PyTorch GPU transfers each simulation step.
 
     Args:
         env: a vectorized IsaacLab gymnasium environment.
         num_envs: number of parallel environments (= number of policies).
-        model: a torch.nn.Module policy (used as architecture template).
+        policy_network: a Flax nn.Module policy (e.g. qdax MLP).
         num_steps: max number of simulation steps per evaluation episode.
         descriptor_fn: optional callable(obs_accumulator, step_count, cumulative_rewards)
             -> descriptors tensor of shape (num_envs, num_descriptors).
@@ -23,32 +25,31 @@ class Evaluator:
         self,
         env,
         num_envs: int,
-        model: torch.nn.Module,
+        policy_network,
         num_steps: int = 100,
         descriptor_fn: Optional[Callable] = None,
     ):
         self.env = env
         self.num_envs = num_envs
-        self.batched_policy = BatchedPolicy(model, num_envs)
+        self.policy_network = policy_network
         self.num_steps = num_steps
         self.descriptor_fn = descriptor_fn
+        self._batched_apply = jax.jit(jax.vmap(policy_network.apply))
 
-    def evaluate(self, parameters: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Evaluate a batch of flat parameter vectors in the environment.
+    def evaluate(self, genotypes) -> tuple[torch.Tensor, torch.Tensor]:
+        """Evaluate a batch of JAX PyTree genotypes in the environment.
 
-        Rolls out each policy for up to ``num_steps`` steps (or until the
-        episode terminates), accumulating rewards as fitness and computing
-        behavioral descriptors.
+        Rolls out each policy for up to ``num_steps`` steps using a Flax
+        network forward pass (JAX), with DLPack zero-copy transfers for
+        observations and actions between PyTorch (IsaacLab) and JAX.
 
         Args:
-            parameters: tensor of shape (num_policies, num_params).
+            genotypes: JAX PyTree where each leaf has shape (num_policies, ...).
 
         Returns:
-            fitnesses: shape (num_policies,) — cumulative reward per episode.
-            descriptors: shape (num_policies, num_descriptors).
+            fitnesses: torch tensor, shape (num_policies,) — cumulative reward.
+            descriptors: torch tensor, shape (num_policies, num_descriptors).
         """
-        self.batched_policy.set_population_parameters(parameters)
-
         obs_dict, _ = self.env.reset()
         obs = obs_dict["policy"] if isinstance(obs_dict, dict) else obs_dict
         device = obs.device
@@ -60,7 +61,11 @@ class Evaluator:
 
         with torch.no_grad():
             for _ in range(self.num_steps):
-                actions = self.batched_policy.batched_forward(obs)
+                # JAX forward pass: obs (torch) -> JAX -> Flax policy -> actions (JAX) -> torch
+                obs_jax = jnp.from_dlpack(obs.contiguous())
+                actions_jax = self._batched_apply(genotypes, obs_jax)
+                actions = torch.from_dlpack(actions_jax)
+
                 obs_dict, rewards, terminated, truncated, infos = self.env.step(actions)
                 obs = obs_dict["policy"] if isinstance(obs_dict, dict) else obs_dict
 
@@ -80,8 +85,7 @@ class Evaluator:
                 obs_accumulator, step_count, cumulative_rewards
             )
         else:
-            # Default: time-averaged mean of the first 2 observation dimensions.
-            # Replace this with a task-specific descriptor for meaningful QD results.
+            # Default: time-averaged mean of the first 2 observation dims.
             mean_obs = obs_accumulator / step_count.unsqueeze(-1).clamp(min=1)
             descriptors = mean_obs[:, :2]
 
