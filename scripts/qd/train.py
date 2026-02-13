@@ -2,12 +2,15 @@ import argparse
 from isaaclab.app import AppLauncher
 
 # add argparse arguments
-parser = argparse.ArgumentParser(description="Random agent for Isaac Lab environments.")
+parser = argparse.ArgumentParser(description="MAP-Elites QD training for Isaac Lab environments.")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
-parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+parser.add_argument("--num_envs", type=int, default=100, help="Number of environments (= MAP-Elites batch size).")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument("--num_iterations", type=int, default=100, help="Number of MAP-Elites iterations.")
+parser.add_argument("--episode_length", type=int, default=200, help="Max steps per evaluation episode.")
+parser.add_argument("--seed", type=int, default=42, help="Random seed.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -19,118 +22,214 @@ simulation_app = app_launcher.app
 
 """Rest everything follows."""
 
+import functools
+import time
+
 import gymnasium as gym
+import numpy as np
 import torch
+
+import jax
+import jax.numpy as jnp
+
+from qdax.core.map_elites import MAPElites
+from qdax.core.containers.mapelites_repertoire import compute_cvt_centroids
+from qdax.core.emitters.mutation_operators import isoline_variation
+from qdax.core.emitters.standard_emitters import MixingEmitter
+from qdax.utils.metrics import CSVLogger, default_qd_metrics
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 
+from evaluator import Evaluator
+
+# ---------- MAP-Elites hyperparameters ----------
+ISO_SIGMA = 0.005
+LINE_SIGMA = 0.05
+NUM_INIT_CVT_SAMPLES = 50000
+NUM_CENTROIDS = 1024
+NUM_DESCRIPTORS = 2
+MIN_DESCRIPTOR = 0.0
+MAX_DESCRIPTOR = 1.0
+POLICY_HIDDEN_SIZE = 64
+
+
+class SimplePolicy(torch.nn.Module):
+    """Simple MLP policy with tanh output (bounded actions in [-1, 1])."""
+
+    def __init__(self, obs_dim: int, hidden: int, action_dim: int):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(obs_dim, hidden),
+            torch.nn.Tanh(),
+            torch.nn.Linear(hidden, hidden),
+            torch.nn.Tanh(),
+            torch.nn.Linear(hidden, action_dim),
+            torch.nn.Tanh(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
 
 def main():
-    """Random actions agent with Isaac Lab environment."""
-    # create environment configuration
+    device = args_cli.device
+    batch_size = args_cli.num_envs  # one policy per environment
+    num_iterations = args_cli.num_iterations
+    episode_length = args_cli.episode_length
+    seed = args_cli.seed
+
+    # ---- Create IsaacLab environment ----
     env_cfg = parse_env_cfg(
-        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric
+        args_cli.task,
+        device=device,
+        num_envs=batch_size,
+        use_fabric=not args_cli.disable_fabric,
     )
-    # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)
 
-    # print info (this is vectorized environment)
-    print(f"[INFO]: Gym observation space: {env.observation_space}")
-    print(f"[INFO]: Gym action space: {env.action_space}")
+    # Infer observation and action dimensions
+    obs_space = env.observation_space
+    obs_dim = (
+        obs_space["policy"].shape[-1]
+        if isinstance(obs_space, gym.spaces.Dict)
+        else obs_space.shape[-1]
+    )
+    action_dim = env.action_space.shape[-1]
+    print(f"[INFO] obs_dim={obs_dim}, action_dim={action_dim}, batch_size={batch_size}")
 
-    # reset environment
-    obs_dict, _ = env.reset()
-    sim_dones = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=env.unwrapped.device)
-    # simulate environment
-    while simulation_app.is_running():
-        # run everything in inference mode
-        with torch.inference_mode():
-            # sample actions from -1 to 1
-            actions = 2 * torch.rand(env.action_space.shape, device=env.unwrapped.device) - 1
-            # apply actions
-            obs_dict, reward, terminated, truncated, extras = env.step(actions)
-            dones = terminated | truncated
-            sim_dones |= dones
-            # print("Obs:", obs_dict, "Reward:", reward, "Terminated:", terminated, "Truncated:", truncated, "Extras:", extras)
-            print(f"Rewards: {reward}, Dones: {sim_dones}")
+    # ---- Create PyTorch policy and evaluator ----
+    policy = SimplePolicy(obs_dim=obs_dim, hidden=POLICY_HIDDEN_SIZE, action_dim=action_dim)
+    evaluator = Evaluator(
+        env=env,
+        num_envs=batch_size,
+        model=policy,
+        num_steps=episode_length,
+    )
 
-    # close the simulator
+    num_params = sum(p.numel() for p in policy.parameters())
+    print(f"[INFO] Policy parameters: {num_params}")
+
+    # ---- Bridge function: JAX genotypes <-> PyTorch evaluation ----
+    def evaluate_genotypes(genotypes_jax):
+        """Convert JAX genotypes to torch, evaluate in IsaacLab, convert back."""
+        params_torch = torch.from_numpy(np.asarray(genotypes_jax)).float().to(device)
+        fitnesses_torch, descriptors_torch = evaluator.evaluate(params_torch)
+        fitnesses_jax = jnp.array(fitnesses_torch.cpu().numpy())
+        descriptors_jax = jnp.array(descriptors_torch.cpu().numpy())
+        return fitnesses_jax, descriptors_jax, {}
+
+    # ---- QDax MAP-Elites setup ----
+    key = jax.random.key(seed)
+
+    # Initial population: generate random torch params, convert to JAX
+    init_params_torch = evaluator.batched_policy.get_initial_random_parameters(batch_size)
+    init_genotypes = jnp.array(init_params_torch.cpu().numpy())  # (batch_size, num_params)
+
+    # Emitter
+    variation_fn = functools.partial(
+        isoline_variation, iso_sigma=ISO_SIGMA, line_sigma=LINE_SIGMA
+    )
+    mixing_emitter = MixingEmitter(
+        mutation_fn=None,
+        variation_fn=variation_fn,
+        variation_percentage=1.0,
+        batch_size=batch_size,
+    )
+
+    # Metrics
+    metrics_function = functools.partial(default_qd_metrics, qd_offset=0.0)
+
+    # MAP-Elites instance (no scoring_function — using ask-tell)
+    map_elites = MAPElites(
+        scoring_function=None,
+        emitter=mixing_emitter,
+        metrics_function=metrics_function,
+    )
+
+    # CVT centroids
+    key, subkey = jax.random.split(key)
+    centroids = compute_cvt_centroids(
+        num_descriptors=NUM_DESCRIPTORS,
+        num_init_cvt_samples=NUM_INIT_CVT_SAMPLES,
+        num_centroids=NUM_CENTROIDS,
+        minval=MIN_DESCRIPTOR,
+        maxval=MAX_DESCRIPTOR,
+        key=subkey,
+    )
+
+    # ---- Evaluate initial population ----
+    print("[INFO] Evaluating initial population...")
+    fitnesses, descriptors, extra_scores = evaluate_genotypes(init_genotypes)
+
+    # Initialize repertoire and emitter state
+    key, subkey = jax.random.split(key)
+    repertoire, emitter_state, _ = map_elites.init_ask_tell(
+        genotypes=init_genotypes,
+        fitnesses=fitnesses,
+        descriptors=descriptors,
+        centroids=centroids,
+        key=subkey,
+        extra_scores=extra_scores,
+    )
+
+    # ---- MAP-Elites ask-tell loop ----
+    ask_fn = jax.jit(map_elites.ask)
+    tell_fn = jax.jit(map_elites.tell)
+
+    log_metrics = dict.fromkeys(
+        ["iteration", "qd_score", "coverage", "max_fitness", "time"],
+        jnp.array([]),
+    )
+    csv_logger = CSVLogger("mapelites-logs.csv", header=list(log_metrics.keys()))
+
+    print(f"[INFO] Starting MAP-Elites for {num_iterations} iterations")
+    for i in range(num_iterations):
+        start_time = time.time()
+
+        # ASK: generate candidate genotypes (JAX, JIT-compiled)
+        key, subkey = jax.random.split(key)
+        genotypes, extra_info = ask_fn(repertoire, emitter_state, subkey)
+
+        # EVALUATE: run candidates in IsaacLab (PyTorch, not JIT)
+        fitnesses, descriptors, extra_scores = evaluate_genotypes(genotypes)
+
+        # TELL: update the repertoire (JAX, JIT-compiled)
+        repertoire, emitter_state, current_metrics = tell_fn(
+            genotypes=genotypes,
+            fitnesses=fitnesses,
+            descriptors=descriptors,
+            repertoire=repertoire,
+            emitter_state=emitter_state,
+            extra_scores=extra_scores,
+            extra_info=extra_info,
+        )
+
+        elapsed = time.time() - start_time
+
+        # Log metrics
+        current_metrics["iteration"] = i
+        current_metrics["time"] = elapsed
+        current_metrics = jax.tree.map(lambda x: jnp.array([x]), current_metrics)
+        log_metrics = jax.tree.map(
+            lambda old, new: jnp.concatenate([old, new], axis=0),
+            log_metrics,
+            current_metrics,
+        )
+        csv_logger.log(jax.tree.map(lambda x: x[-1], log_metrics))
+
+        print(
+            f"  Iter {i:4d} | "
+            f"max_fitness={float(current_metrics['max_fitness']):.2f} | "
+            f"coverage={float(current_metrics['coverage']):.4f} | "
+            f"qd_score={float(current_metrics['qd_score']):.2f} | "
+            f"time={elapsed:.2f}s"
+        )
+
+    print("[INFO] Training complete.")
     env.close()
 
 
 if __name__ == "__main__":
-    # run the main function
     main()
-    # close sim app
     simulation_app.close()
-
-
-
-    policy = Policy(obs_dim=10, hidden=64, action_dim=4)
-    print("Policy parameters:")
-    named_params = policy.named_parameters()
-    for name, param in named_params:
-        print(f"{name}: {param.shape}")
-
-    named_buffers = policy.named_buffers()
-    print("\nPolicy buffers:")
-    for name, buffer in named_buffers:
-        print(f"{name}: {buffer.shape}")
-
-    list_named_params_shape = [(name, param.shape) for name, param in policy.named_parameters()]
-    print("\nList of named parameters and their shapes:")
-    for name, shape in list_named_params_shape:
-        print(f"{name}: {shape}")
-
-    # Example of flattening parameters into a 1D vector
-    flat_params = torch.cat([param.flatten() for param in policy.parameters()])
-    print(f"\nFlattened parameters shape: {flat_params.shape}")
-
-    # Example of unflattening back to original shapes
-    param_shapes = [param.shape for param in policy.parameters()]
-    unflattened_named_params = {}
-    offset = 0
-    for name, shape in list_named_params_shape:
-        numel = torch.prod(torch.tensor(shape)).item()
-        unflattened_named_params[name] = flat_params[offset : offset + numel].reshape(shape)
-        offset += numel
-
-    print("\nUnflattened parameters:")
-    for name, param in unflattened_named_params.items():
-        print(f"{name}: {param.shape}")
-
-    # Verify that unflattening gives the same parameters back
-    for name, param in policy.named_parameters():
-        assert torch.allclose(param, unflattened_named_params[name]), f"Mismatch in parameter {name}"
-    print("\nUnflattening verified to match original parameters.")
-
-
-def copied(self):
-    param_names: list[str] = []
-    param_shapes: list[tuple[int, ...]] = []
-    for name, p in model.named_parameters():
-        param_names.append(name)
-        param_shapes.append(p.shape)
-
-    def _unflatten(flat_vec: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Unflatten a 1-D vector into a {name: tensor} dict."""
-        params: dict[str, torch.Tensor] = {}
-        offset = 0
-        for name, shape in zip(param_names, param_shapes):
-            n = 1
-            for s in shape:
-                n *= s
-            params[name] = flat_vec[offset : offset + n].reshape(shape)
-            offset += n
-        return params
-
-    # Single-policy forward: (flat_params_1d, obs_single) → action_single
-    def _single_forward(flat_params: torch.Tensor, obs: torch.Tensor) -> torch.Tensor:
-        params = _unflatten(flat_params)
-        return torch.func.functional_call(model, params, obs)
-
-    # Vectorize over the first dimension of both flat_params and obs.
-    batched_forward = torch.vmap(_single_forward, in_dims=(0, 0))
-
-    return batched_forward, param_shapes, param_names
