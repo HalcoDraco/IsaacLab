@@ -26,7 +26,6 @@ import functools
 import time
 
 import gymnasium as gym
-import numpy as np
 import torch
 
 import jax
@@ -37,6 +36,9 @@ from qdax.core.containers.mapelites_repertoire import compute_cvt_centroids
 from qdax.core.emitters.mutation_operators import isoline_variation
 from qdax.core.emitters.standard_emitters import MixingEmitter
 from qdax.utils.metrics import CSVLogger, default_qd_metrics
+
+import logging
+logging.getLogger("jax").setLevel(logging.INFO)
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
@@ -112,19 +114,19 @@ def main():
 
     # ---- Bridge function: JAX genotypes <-> PyTorch evaluation ----
     def evaluate_genotypes(genotypes_jax):
-        """Convert JAX genotypes to torch, evaluate in IsaacLab, convert back."""
-        params_torch = torch.from_numpy(np.asarray(genotypes_jax)).float().to(device)
+        """Convert JAX genotypes to torch, evaluate in IsaacLab, convert back via DLPack (zero-copy on GPU)."""
+        params_torch = torch.from_dlpack(genotypes_jax)
         fitnesses_torch, descriptors_torch = evaluator.evaluate(params_torch)
-        fitnesses_jax = jnp.array(fitnesses_torch.cpu().numpy())
-        descriptors_jax = jnp.array(descriptors_torch.cpu().numpy())
+        fitnesses_jax = jnp.from_dlpack(fitnesses_torch)
+        descriptors_jax = jnp.from_dlpack(descriptors_torch.contiguous())
         return fitnesses_jax, descriptors_jax, {}
 
     # ---- QDax MAP-Elites setup ----
     key = jax.random.key(seed)
 
     # Initial population: generate random torch params, convert to JAX
-    init_params_torch = evaluator.batched_policy.get_initial_random_parameters(batch_size)
-    init_genotypes = jnp.array(init_params_torch.cpu().numpy())  # (batch_size, num_params)
+    init_params_torch = evaluator.batched_policy.get_initial_random_parameters(batch_size).to(device)
+    init_genotypes = jnp.from_dlpack(init_params_torch)  # (batch_size, num_params)
 
     # Emitter
     variation_fn = functools.partial(
@@ -220,9 +222,9 @@ def main():
 
         print(
             f"  Iter {i:4d} | "
-            f"max_fitness={float(current_metrics['max_fitness']):.2f} | "
-            f"coverage={float(current_metrics['coverage']):.4f} | "
-            f"qd_score={float(current_metrics['qd_score']):.2f} | "
+            f"max_fitness={float(current_metrics['max_fitness'][0]):.2f} | "
+            f"coverage={float(current_metrics['coverage'][0]):.4f} | "
+            f"qd_score={float(current_metrics['qd_score'][0]):.2f} | "
             f"time={elapsed:.2f}s"
         )
 

@@ -58,7 +58,7 @@ class Evaluator:
         step_count = torch.zeros(self.num_envs, device=device)
         obs_accumulator = torch.zeros_like(obs)
 
-        with torch.inference_mode():
+        with torch.no_grad():
             for _ in range(self.num_steps):
                 actions = self.batched_policy.batched_forward(obs)
                 obs_dict, rewards, terminated, truncated, infos = self.env.step(actions)
