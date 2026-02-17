@@ -76,6 +76,13 @@ def parse_cli_args() -> argparse.Namespace:
         parents=[parent_parser],
     )
     subparsers.add_parser(
+        "start_ipc",
+        help=(
+            "Build the docker image and create the container in detached mode with GPU IPC enabled. This is required for some features such as Omniverse Audio2Face. Note: this requires additional setup on the host machine. Please check the 'Docker Guide' for instruction: https://isaac-sim.github.io/IsaacLab/source/deployment/docker.html#docker-ipc-mode"
+        ),
+        parents=[parent_parser],
+    )
+    subparsers.add_parser(
         "enter", help="Begin a new bash process within an existing Isaac Lab container.", parents=[parent_parser]
     )
     config = subparsers.add_parser(
