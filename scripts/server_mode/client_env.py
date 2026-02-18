@@ -42,6 +42,6 @@ def main(env: SocketEnvClient, task: str, num_envs: int):
 if __name__ == "__main__":
     env = SocketEnvClient()
     main(env, task="Isaac-Cartpole-Direct-v0", num_envs=64)
-    main(env, task="Isaac-Cartpole-Direct-v0", num_envs=128)
+    main(env, task="Isaac-Ant-Direct-v0", num_envs=128)
     env.stop()
     

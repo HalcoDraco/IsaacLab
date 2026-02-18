@@ -5,6 +5,8 @@ import struct
 import torch
 import gymnasium as gym
 
+import isaaclab.sim as sim_utils
+import omni.physx
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 
@@ -122,7 +124,16 @@ class SocketEnvServer(SocketEnv):
         if self.conn is None:
             raise RuntimeError("No client connected.")
         
+        # DirectRLEnv.close() only detaches the physx stage and stops the sim when
+        # create_stage_in_memory is True (not the default). Without detaching first,
+        # sim.stop() and create_new_stage() hang because the physics engine still
+        # holds the stage. We must detach explicitly before closing.
+        omni.physx.get_physx_simulation_interface().detach_stage()
+
         self.env.close()
+
+        # Create a fresh USD stage so old prims don't interfere with the next gym.make()
+        sim_utils.create_new_stage()
         torch.cuda.synchronize()
 
         self.env = None
