@@ -76,6 +76,13 @@ def parse_cli_args() -> argparse.Namespace:
         parents=[parent_parser],
     )
     subparsers.add_parser(
+        "start_server",
+        help=(
+            "Build the docker image and create the container in detached mode with necessary permissions and mounts to allow usage outside of the container."
+        ),
+        parents=[parent_parser],
+    )
+    subparsers.add_parser(
         "enter", help="Begin a new bash process within an existing Isaac Lab container.", parents=[parent_parser]
     )
     config = subparsers.add_parser(
@@ -143,6 +150,16 @@ def main(args: argparse.Namespace):
             ci.environ.update(x11_envar)
         # start the container
         ci.start()
+    elif args.command == "start_server":
+        # check if x11 forwarding is enabled
+        x11_outputs = x11_utils.x11_check(ci.statefile)
+        # if x11 forwarding is enabled, add the x11 yaml and environment variables
+        if x11_outputs is not None:
+            (x11_yaml, x11_envar) = x11_outputs
+            ci.add_yamls += x11_yaml
+            ci.environ.update(x11_envar)
+        # start the container
+        ci.start_server()
     elif args.command == "enter":
         # refresh the x11 forwarding
         x11_utils.x11_refresh(ci.statefile)
