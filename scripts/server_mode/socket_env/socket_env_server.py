@@ -1,5 +1,4 @@
 import os
-import pickle
 import socket
 import struct
 import torch
@@ -19,7 +18,6 @@ class SocketEnvServer(SocketEnv):
         self.env: gym.Env | None = None
 
         self.srv: socket.socket | None = None
-        self.conn: socket.socket | None = None
 
     def _prepare_socket(self):
         os.makedirs(os.path.dirname(self._socket_path), exist_ok=True)
@@ -34,14 +32,12 @@ class SocketEnvServer(SocketEnv):
         if self.srv is None:
             raise RuntimeError("Socket server not initialized.")
         
-        self.conn, _ = self.srv.accept()
-        
+        self.sock, _ = self.srv.accept()
 
     def _send_tensor_metadata(self, tensor: torch.Tensor):
-        if self.conn is None:
+        if self.sock is None:
             raise RuntimeError("No client connected.")
-        meta = pickle.dumps(self._get_tensor_metadata(tensor))
-        self.conn.sendall(struct.pack("!I", len(meta)) + meta)
+        self._send_pickled_object(self._get_tensor_metadata(tensor))
 
     def _send_buffers_metadata(self):
         if self.obs_buffer is None or \
@@ -58,12 +54,15 @@ class SocketEnvServer(SocketEnv):
 
     def _make(self):
         # Receive task configuration from client
-        if self.conn is None:
+        if self.sock is None:
             raise RuntimeError("No client connected.")
+        
+        if self.env is not None:
+            self._close()
 
-        (task_len,) = struct.unpack("!I", self._recv_exact(self.conn, 4))
-        task = self._recv_exact(self.conn, task_len).decode("utf-8")
-        (num_envs,) = struct.unpack("!i", self._recv_exact(self.conn, 4))
+        (task_len,) = struct.unpack("!I", self._recv_exact(4))
+        task = self._recv_exact(task_len).decode("utf-8")
+        (num_envs,) = struct.unpack("!i", self._recv_exact(4))
 
         env_cfg = parse_env_cfg(
             task, device=self.device, 
@@ -82,11 +81,13 @@ class SocketEnvServer(SocketEnv):
 
         torch.cuda.synchronize()
         self._send_buffers_metadata()
+        self._send_pickled_object(self.env.observation_space)
+        self._send_pickled_object(self.env.action_space)
 
     def _step(self):
         if self.env is None:
             raise RuntimeError("Environment not initialized.")
-        if self.conn is None:
+        if self.sock is None:
             raise RuntimeError("No client connected.")
         if self.obs_buffer is None or \
             self.rewards_buffer is None or \
@@ -102,12 +103,12 @@ class SocketEnvServer(SocketEnv):
         self.terminated_buffer.copy_(terminated)
         self.truncated_buffer.copy_(truncated)
         torch.cuda.synchronize()
-        self.conn.sendall(self.STEP)
+        self.sock.sendall(self.STEP)
 
     def _reset(self):
         if self.env is None:
             raise RuntimeError("Environment not initialized.")
-        if self.conn is None:
+        if self.sock is None:
             raise RuntimeError("No client connected.")
         if self.obs_buffer is None:
             raise RuntimeError("Observation buffer not initialized.")
@@ -116,12 +117,12 @@ class SocketEnvServer(SocketEnv):
         obs = obs_dict["policy"] if isinstance(obs_dict, dict) else obs_dict
         self.obs_buffer.copy_(obs)
         torch.cuda.synchronize()
-        self.conn.sendall(self.RESET)
+        self.sock.sendall(self.RESET)
 
     def _close(self):
         if self.env is None:
             raise RuntimeError("Environment not initialized.")
-        if self.conn is None:
+        if self.sock is None:
             raise RuntimeError("No client connected.")
         
         # DirectRLEnv.close() only detaches the physx stage and stops the sim when
@@ -143,23 +144,23 @@ class SocketEnvServer(SocketEnv):
         self.truncated_buffer = None
         self.action_buffer = None
 
-        self.conn.sendall(self.CLOSE)
+        self.sock.sendall(self.CLOSE)
 
     def _stop(self):
-        if self.conn is None:
+        if self.sock is None:
             raise RuntimeError("No client connected.")
-        self.conn.sendall(self.STOP)
+        self.sock.sendall(self.STOP)
 
     def run(self):
         try:
             self._prepare_socket()
             print("[isaac_server] Waiting for connection…")
             self._wait_for_client()
-            assert self.conn is not None
+            assert self.sock is not None
             print("[isaac_server] Client connected.")
 
             while True:
-                sig = self.conn.recv(1)
+                sig = self.sock.recv(1)
                 if sig == self.MAKE:
                     self._make()
                 elif sig == self.STEP:
@@ -186,8 +187,8 @@ class SocketEnvServer(SocketEnv):
                 del self.truncated_buffer
             if self.action_buffer is not None:
                 del self.action_buffer
-            if self.conn is not None:
-                self.conn.close()
+            if self.sock is not None:
+                self.sock.close()
             if self.srv is not None:
                 self.srv.close()
             print("[isaac_server] Done.")

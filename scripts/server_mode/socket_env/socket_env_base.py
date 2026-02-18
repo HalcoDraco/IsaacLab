@@ -1,4 +1,6 @@
+import pickle
 import socket
+import struct
 import torch
 
 class SocketEnv:
@@ -15,6 +17,7 @@ class SocketEnv:
         if socket_path is None:
             socket_path = self.DEFAULT_SOCKET_PATH
         self._socket_path = socket_path
+        self.sock: socket.socket | None = None
         self.device = device
         self.disable_fabric = disable_fabric
 
@@ -52,13 +55,26 @@ class SocketEnv:
         }
         return meta
 
-    @staticmethod
-    def _recv_exact(sock: socket.socket, num_bytes: int) -> bytes:
+    def _recv_exact(self, num_bytes: int) -> bytes:
         """Receive exactly ``num_bytes`` bytes from a socket."""
+        if self.sock is None:
+            raise RuntimeError("Socket is not connected.")
         chunks = bytearray()
         while len(chunks) < num_bytes:
-            chunk = sock.recv(num_bytes - len(chunks))
+            chunk = self.sock.recv(num_bytes - len(chunks))
             if not chunk:
                 raise RuntimeError("Socket connection closed while receiving data.")
             chunks.extend(chunk)
         return bytes(chunks)
+
+    def _receive_pickled_object(self):
+        """Receive a length-prefixed pickled object from a socket."""
+        (length,) = struct.unpack("!I", self._recv_exact(4))
+        return pickle.loads(self._recv_exact(length))
+
+    def _send_pickled_object(self, obj):
+        """Send a length-prefixed pickled object over a socket."""
+        if self.sock is None:
+            raise RuntimeError("Socket is not connected.")
+        payload = pickle.dumps(obj)
+        self.sock.sendall(struct.pack("!I", len(payload)) + payload)

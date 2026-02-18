@@ -35,6 +35,8 @@ import torch
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
 
+import time
+
 # PLACEHOLDER: Extension template (do not remove this comment)
 
 
@@ -52,7 +54,12 @@ def main():
     print(f"[INFO]: Gym action space: {env.action_space}")
     # reset environment
     env.reset()
+
+
     # simulate environment
+    BENCHMARK_INTERVAL = 100.0
+    step = 0
+    start = time.perf_counter()
     while simulation_app.is_running():
         # run everything in inference mode
         with torch.inference_mode():
@@ -60,6 +67,11 @@ def main():
             actions = 2 * torch.rand(env.action_space.shape, device=env.unwrapped.device) - 1
             # apply actions
             env.step(actions)
+            step += 1
+        
+        if step % BENCHMARK_INTERVAL == 0:
+            print(f"[INFO]: Steps/s = {BENCHMARK_INTERVAL / (time.perf_counter() - start):.2f}")
+            start = time.perf_counter()
 
     # close the simulator
     env.close()

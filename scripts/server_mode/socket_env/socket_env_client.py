@@ -1,4 +1,3 @@
-import pickle
 import socket
 import struct
 import torch
@@ -12,26 +11,23 @@ class SocketEnvClient(SocketEnv):
     def __init__(self, socket_path=None):
         super().__init__(socket_path)
 
+        self._observation_space = None
+        self._action_space = None
+
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.connect(self._socket_path)
 
     @property
     def observation_space(self):
-        if self.obs_buffer is None:
+        if self._observation_space is None:
             raise RuntimeError("Environment not initialized.")
-        return self.obs_buffer
-        # return gym.spaces.Box(
-        #     low=-float("inf"), high=float("inf"), shape=self.obs_buffer.shape, dtype=self.obs_buffer.dtype
-        # )
+        return self._observation_space
     
     @property
     def action_space(self):
-        if self.action_buffer is None:
+        if self._action_space is None:
             raise RuntimeError("Environment not initialized.")
-        return self.action_buffer
-        # return gym.spaces.Box(
-        #     low=-1.0, high=1.0, shape=self.action_buffer.shape, dtype=self.action_buffer.dtype
-        # )
+        return self._action_space
     
     @property
     def num_envs(self):
@@ -40,6 +36,8 @@ class SocketEnvClient(SocketEnv):
         return self.rewards_buffer.shape[0]
 
     def _socket_send_receive(self, sig_send: bytes):
+        if self.sock is None:
+            raise RuntimeError("Socket is not connected.")
         self.sock.sendall(sig_send)
         # Wait for server response 
         sig_rec = self.sock.recv(1)
@@ -48,8 +46,7 @@ class SocketEnvClient(SocketEnv):
 
     def _receive_tensor_metadata(self) -> torch.Tensor:
         """Receive IPC metadata from server and reconstruct the shared CUDA tensor."""
-        (length,) = struct.unpack("!I", self._recv_exact(self.sock, 4))
-        meta = pickle.loads(self._recv_exact(self.sock, length))
+        meta = self._receive_pickled_object()
         tensor = rebuild_cuda_tensor(**meta)
         return tensor
     
@@ -61,13 +58,21 @@ class SocketEnvClient(SocketEnv):
         self.action_buffer = self._receive_tensor_metadata()
 
     def make(self, task: str, num_envs: int):
+        if self.sock is None:
+            raise RuntimeError("Socket is not connected.")
         self.sock.sendall(self.MAKE)
         # Send task configuration (could be extended to send more complex configs)
         task_bytes = task.encode("utf-8")
-        payload = struct.pack("!I", len(task_bytes)) + task_bytes + struct.pack("!i", num_envs)
+        payload = (
+            struct.pack("!I", len(task_bytes))
+            + task_bytes
+            + struct.pack("!i", num_envs)
+        )
         self.sock.sendall(payload)
 
         self._receive_buffers_metadata()
+        self._observation_space = self._receive_pickled_object()
+        self._action_space = self._receive_pickled_object()
 
     def step(self, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
@@ -94,7 +99,11 @@ class SocketEnvClient(SocketEnv):
 
     def close(self):
         self._socket_send_receive(self.CLOSE)
+        self._observation_space = None
+        self._action_space = None
 
     def stop(self):
         self._socket_send_receive(self.STOP)
+        if self.sock is None:
+            raise RuntimeError("Socket is not connected.")
         self.sock.close()

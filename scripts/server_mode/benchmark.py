@@ -1,7 +1,8 @@
 import torch
 from socket_env.socket_env_client import SocketEnvClient
+import time
 
-def main(env: SocketEnvClient, task: str, num_envs: int, steps: int):
+def main(env: SocketEnvClient, task: str, num_envs: int, steps: int, benchmark_interval: int):
     
     env.make(task, num_envs)
 
@@ -11,10 +12,7 @@ def main(env: SocketEnvClient, task: str, num_envs: int, steps: int):
     # reset environment
     obs = env.reset()
 
-    cumulative_rewards = torch.zeros(env.num_envs, device=env.device)
-    dones = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-    step_count = torch.zeros(env.num_envs, dtype=torch.int32, device=env.device)
-
+    start = time.perf_counter()
     # simulate environment
     for step in range(steps):
         # run everything in inference mode
@@ -23,25 +21,16 @@ def main(env: SocketEnvClient, task: str, num_envs: int, steps: int):
             actions = 2 * torch.rand(env.action_space.shape, device=env.device) - 1
             # apply actions
             obs, rewards, terminated, truncated = env.step(actions)
-
-            alive = ~dones
-            cumulative_rewards += rewards * alive.float()
-            step_count += alive.int()
-
-            dones |= (terminated | truncated)
-
-            # Print dones for debugging
-            print(f"[client_env] Step {step+1}: dones = {dones.cpu().numpy()}")
-
-            if dones.all():
-                break
+        
+        if step % benchmark_interval == 0:
+            print(f"[INFO]: Steps/s = {benchmark_interval / (time.perf_counter() - start):.2f}")
+            start = time.perf_counter()
 
     # close the simulator
     env.close()
 
 if __name__ == "__main__":
     env = SocketEnvClient()
-    main(env, task="Isaac-Cartpole-Direct-v0", num_envs=128, steps=300)
-    main(env, task="Isaac-Ant-Direct-v0", num_envs=128, steps=900)
+    main(env, task="Isaac-Cartpole-Direct-v0", num_envs=2048, steps=10000, benchmark_interval=100)
     env.stop()
     
