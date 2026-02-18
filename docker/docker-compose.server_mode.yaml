@@ -13,4 +13,4 @@ services:
   isaac-lab-base:
     ipc: host
     volumes:
-      - /tmp/sockets:/tmp/sockets
+      - /tmp/test_isaaclab_pablo/sockets:/tmp/sockets
