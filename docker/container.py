@@ -76,13 +76,6 @@ def parse_cli_args() -> argparse.Namespace:
         parents=[parent_parser],
     )
     subparsers.add_parser(
-        "start_ipc",
-        help=(
-            "Build the docker image and create the container in detached mode with GPU IPC enabled. This is required for some features such as Omniverse Audio2Face. Note: this requires additional setup on the host machine. Please check the 'Docker Guide' for instruction: https://isaac-sim.github.io/IsaacLab/source/deployment/docker.html#docker-ipc-mode"
-        ),
-        parents=[parent_parser],
-    )
-    subparsers.add_parser(
         "enter", help="Begin a new bash process within an existing Isaac Lab container.", parents=[parent_parser]
     )
     config = subparsers.add_parser(
@@ -150,16 +143,6 @@ def main(args: argparse.Namespace):
             ci.environ.update(x11_envar)
         # start the container
         ci.start()
-    elif args.command == "start_ipc":
-        # check if x11 forwarding is enabled
-        x11_outputs = x11_utils.x11_check(ci.statefile)
-        # if x11 forwarding is enabled, add the x11 yaml and environment variables
-        if x11_outputs is not None:
-            (x11_yaml, x11_envar) = x11_outputs
-            ci.add_yamls += x11_yaml
-            ci.environ.update(x11_envar)
-        # start the container
-        ci.start_with_gpu_ipc()
     elif args.command == "enter":
         # refresh the x11 forwarding
         x11_utils.x11_refresh(ci.statefile)
