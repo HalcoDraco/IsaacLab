@@ -14,7 +14,6 @@ import pickle
 import socket
 import struct
 import torch
-import time
 
 SOCKET_PATH = "/tmp/sockets/gpu_test_comm.sock"
 SHAPE = (8192, 64)
@@ -70,26 +69,13 @@ def main():
         torch.cuda.synchronize()
         print(buf[0, :5])  # Debug: print first 5 elements of the first row
         conn.sendall(CONT)
-        conn.recv(1)  # Wait for file2 to acknowledge before starting the loop
+        conn.recv(1)  
 
-        # Main loop
-        # it = 0
-        start_time = time.perf_counter()
         for it in range(1, 100):
-            # if conn.recv(1) != CONT:
-            #     break
-            # it += 1
-            # torch.cuda.synchronize()
-            # s = buf.sum().item()
-            # print(f"Iteration {it} starting...")
             buf += sum_tensor
             torch.cuda.synchronize()
             conn.sendall(CONT)
-            # if it % 150 == 0:
-            #     elapsed = time.perf_counter() - start_time
-            #     print(f"it/sec: {150/elapsed:.2f}")
-            #     start_time = time.perf_counter()
-            conn.recv(1)  # Wait for file2 to acknowledge the last iteration
+            conn.recv(1) 
         conn.sendall(STOP)
         print(buf[0, :5])
     finally:
@@ -100,9 +86,6 @@ def main():
         srv.close()
         if os.path.exists(SOCKET_PATH):
             os.unlink(SOCKET_PATH)
-        # Remove /tmp/sockets directory if empty
-
-        # os.rmdir(os.path.dirname(SOCKET_PATH))
 
         print("[file1] Done.")
 
