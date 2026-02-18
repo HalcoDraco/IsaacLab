@@ -134,6 +134,11 @@ class SocketEnvServer(SocketEnv):
 
         self.conn.sendall(self.CLOSE)
 
+    def _stop(self):
+        if self.conn is None:
+            raise RuntimeError("No client connected.")
+        self.conn.sendall(self.STOP)
+
     def run(self):
         try:
             self._prepare_socket()
@@ -152,7 +157,9 @@ class SocketEnvServer(SocketEnv):
                     self._reset()
                 elif sig == self.CLOSE:
                     self._close()
-                    print("[isaac_server] Environment closed by client.")
+                elif sig == self.STOP:
+                    self._stop()
+                    print("[isaac_server] Stop signal received. Shutting down.")
                     break
                 else:
                     raise ValueError(f"Unknown signal received: {sig}")

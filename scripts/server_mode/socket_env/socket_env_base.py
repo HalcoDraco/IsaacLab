@@ -9,6 +9,7 @@ class SocketEnv:
     RESET = b"\x02"
     CLOSE = b"\x03"
     MAKE = b"\x04"
+    STOP = b"\x05"
 
     def __init__(self, socket_path: str | None, device: str = "cuda", disable_fabric: bool = False):
         if socket_path is None:

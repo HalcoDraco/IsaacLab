@@ -94,4 +94,7 @@ class SocketEnvClient(SocketEnv):
 
     def close(self):
         self._socket_send_receive(self.CLOSE)
+
+    def stop(self):
+        self._socket_send_receive(self.STOP)
         self.sock.close()

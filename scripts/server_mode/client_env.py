@@ -1,9 +1,9 @@
 import torch
 from socket_env.socket_env_client import SocketEnvClient
 
-def main():
-    env = SocketEnvClient()
-    env.make(task="Isaac-Cartpole-Direct-v0", num_envs=64)
+def main(env: SocketEnvClient, task: str, num_envs: int):
+    
+    env.make(task, num_envs)
 
     # print info (this is vectorized environment)
     print(f"[INFO]: Gym observation space: {env.observation_space}")
@@ -40,5 +40,8 @@ def main():
     env.close()
 
 if __name__ == "__main__":
-    main()
+    env = SocketEnvClient()
+    main(env, task="Isaac-Cartpole-Direct-v0", num_envs=64)
+    main(env, task="Isaac-Cartpole-Direct-v0", num_envs=128)
+    env.stop()
     
