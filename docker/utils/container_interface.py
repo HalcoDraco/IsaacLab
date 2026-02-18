@@ -197,6 +197,19 @@ class ContainerInterface:
         )
         subprocess.run(cmd, check=False, cwd=self.context_dir, env=self.environ)
 
+    def start_server(self):
+        """Build and start the container with GPU IPC support enabled.
+
+        Adds the ``docker-compose.gpu-ipc.yaml`` overlay which sets ``ipc: host``
+        on the service, allowing CUDA IPC tensor sharing between the container and
+        the host process.  This is required by the GPU IPC bridge
+        (``scripts/qd/gpu_ipc_bridge.py``).
+        """
+        server_mode_yaml = "docker-compose.server_mode.yaml"
+        if server_mode_yaml not in " ".join(self.add_yamls):
+            self.add_yamls += ["--file", server_mode_yaml]
+        self.start()
+
     def enter(self):
         """Enter the running container by executing a bash shell.
 
