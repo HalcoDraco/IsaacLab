@@ -13,8 +13,8 @@ from .socket_env_base import SocketEnv
 
 class SocketEnvServer(SocketEnv):
 
-    def __init__(self, socket_path=None):
-        super().__init__(socket_path)
+    def __init__(self, socket_path=None, disable_fabric: bool = False):
+        super().__init__(socket_path, disable_fabric=disable_fabric)
         self.env: gym.Env | None = None
 
         self.srv: socket.socket | None = None

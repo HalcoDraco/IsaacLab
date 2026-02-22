@@ -12,12 +12,11 @@ import argparse
 from isaaclab.app import AppLauncher
 
 # add argparse arguments
-parser = argparse.ArgumentParser(description="Random agent for Isaac Lab environments.")
+parser = argparse.ArgumentParser(description="Launches the server environment")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
-parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -32,7 +31,7 @@ simulation_app = app_launcher.app
 from socket_env.socket_env_server import SocketEnvServer
 
 def main():
-    sock_env = SocketEnvServer()
+    sock_env = SocketEnvServer(disable_fabric=args_cli.disable_fabric)
     sock_env.run()
 
 if __name__ == "__main__":

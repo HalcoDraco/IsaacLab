@@ -2,7 +2,7 @@ import socket
 import struct
 import torch
 from torch.multiprocessing.reductions import rebuild_cuda_tensor
-# import gymnasium as gym
+import gymnasium as gym
 
 from .socket_env_base import SocketEnv
 
@@ -11,8 +11,8 @@ class SocketEnvClient(SocketEnv):
     def __init__(self, socket_path=None):
         super().__init__(socket_path)
 
-        self._observation_space = None
-        self._action_space = None
+        self._observation_space: gym.spaces.Space = None
+        self._action_space: gym.spaces.Space = None
 
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.connect(self._socket_path)
