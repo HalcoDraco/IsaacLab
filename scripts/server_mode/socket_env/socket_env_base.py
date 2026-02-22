@@ -2,8 +2,9 @@ import pickle
 import socket
 import struct
 import torch
+from abc import ABC
 
-class SocketEnv:
+class SocketEnv(ABC):
 
     DEFAULT_SOCKET_PATH = "/tmp/sockets/isaac_communication.sock"
 

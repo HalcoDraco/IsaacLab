@@ -58,7 +58,7 @@ class SocketEnvServer(SocketEnv):
             raise RuntimeError("No client connected.")
         
         if self.env is not None:
-            self._close()
+            self._cleanup_env()
 
         (task_len,) = struct.unpack("!I", self._recv_exact(4))
         task = self._recv_exact(task_len).decode("utf-8")
@@ -151,44 +151,84 @@ class SocketEnvServer(SocketEnv):
             raise RuntimeError("No client connected.")
         self.sock.sendall(self.STOP)
 
-    def run(self):
-        try:
-            self._prepare_socket()
-            print("[isaac_server] Waiting for connection…")
-            self._wait_for_client()
-            assert self.sock is not None
-            print("[isaac_server] Client connected.")
+    def _cleanup_env(self):
+        """Tear down the current environment and leave the simulator ready for a new gym.make().
 
-            while True:
-                sig = self.sock.recv(1)
-                if sig == self.MAKE:
-                    self._make()
-                elif sig == self.STEP:
-                    self._step()
-                elif sig == self.RESET:
-                    self._reset()
-                elif sig == self.CLOSE:
-                    self._close()
-                elif sig == self.STOP:
-                    self._stop()
-                    print("[isaac_server] Stop signal received. Shutting down.")
-                    break
-                else:
-                    raise ValueError(f"Unknown signal received: {sig}")
-        finally:
+        Safe to call even when the environment is already closed or was never created.
+        Mirrors the cleanup sequence of ``_close()`` (detach → env.close → new stage)
+        but never raises and never touches the socket.
+        """
+        # 1. Detach physics so env.close() / create_new_stage() don't hang.
+        try:
+            omni.physx.get_physx_simulation_interface().detach_stage()
+        except Exception as e:
+            print(f"[isaac_server] Warning: Failed to detach stage: {e}")
+
+        # 2. Close the Gym environment.
+        if self.env is not None:
+            try:
+                self.env.close()
+            except Exception as e:
+                print(f"[isaac_server] Warning: Failed to close env: {e}")
+            self.env = None
+
+        # 3. Create a fresh USD stage so the next gym.make() starts clean.
+        try:
+            sim_utils.create_new_stage()
+        except Exception as e:
+            print(f"[isaac_server] Warning: Failed to create new stage: {e}")
+
+        # 4. Synchronize CUDA to flush any pending work.
+        try:
             torch.cuda.synchronize()
-            if self.obs_buffer is not None:
-                del self.obs_buffer
-            if self.rewards_buffer is not None:
-                del self.rewards_buffer
-            if self.terminated_buffer is not None:
-                del self.terminated_buffer
-            if self.truncated_buffer is not None:
-                del self.truncated_buffer
-            if self.action_buffer is not None:
-                del self.action_buffer
-            if self.sock is not None:
-                self.sock.close()
-            if self.srv is not None:
-                self.srv.close()
-            print("[isaac_server] Done.")
+        except Exception as e:
+            print(f"[isaac_server] Warning: Failed to synchronize CUDA: {e}")
+
+        # 5. Release shared buffers.
+        self.obs_buffer = None
+        self.rewards_buffer = None
+        self.terminated_buffer = None
+        self.truncated_buffer = None
+        self.action_buffer = None
+
+    def run(self):
+        server_running = True
+        while server_running:
+            try:
+                self._prepare_socket()
+                print("[isaac_server] Waiting for connection…")
+                self._wait_for_client()
+                assert self.sock is not None
+                print("[isaac_server] Client connected.")
+
+                while True:
+                    sig = self.sock.recv(1)
+                    if sig == self.MAKE:
+                        self._make()
+                    elif sig == self.STEP:
+                        self._step()
+                    elif sig == self.RESET:
+                        self._reset()
+                    elif sig == self.CLOSE:
+                        self._close()
+                    elif sig == self.STOP:
+                        self._stop()
+                        print("[isaac_server] Stop signal received. Shutting down.")
+                        server_running = False
+                        break
+                    else:
+                        raise ValueError(f"Unknown signal received: {sig}")
+            except Exception as e:
+                print(f"[isaac_server] Error: {e}")
+            finally:
+                self._cleanup_env()
+
+                if self.sock is not None:
+                    self.sock.close()
+                    self.sock = None
+                if self.srv is not None:
+                    self.srv.close()
+                    self.srv = None
+                print("[isaac_server] Connection closed.")
+
+        print("[isaac_server] Server stopped.")
