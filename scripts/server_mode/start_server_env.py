@@ -35,7 +35,7 @@ def main():
     sock_env.run()
 
 if __name__ == "__main__":
-    # run the main function
-    main()
-    # close sim app
-    simulation_app.close()
+    try:
+        main()
+    finally:
+        simulation_app.close()

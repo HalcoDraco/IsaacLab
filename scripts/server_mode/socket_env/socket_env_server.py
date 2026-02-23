@@ -27,12 +27,18 @@ class SocketEnvServer(SocketEnv):
         self.srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.srv.bind(self._socket_path)
         self.srv.listen(1)
+        self.srv.settimeout(0.5)  # Set a timeout for accept() to allow graceful shutdown
 
     def _wait_for_client(self):
         if self.srv is None:
             raise RuntimeError("Socket server not initialized.")
         
-        self.sock, _ = self.srv.accept()
+        while True:
+            try:
+                self.sock, _ = self.srv.accept()
+                break
+            except socket.timeout:
+                continue
 
     def _send_tensor_metadata(self, tensor: torch.Tensor):
         if self.sock is None:
@@ -218,6 +224,10 @@ class SocketEnvServer(SocketEnv):
                         break
                     else:
                         raise ValueError(f"Unknown signal received: {sig}")
+            except KeyboardInterrupt:
+                # This block triggers ONLY when you press Ctrl+C
+                print("\nKeyboardInterrupt caught! Gracefully shutting down...")
+                server_running = False
             except Exception as e:
                 print(f"[isaac_server] Error: {e}")
             finally:
