@@ -56,7 +56,13 @@ class SocketEnvClient(SocketEnv):
         self.truncated_buffer = self._receive_tensor_metadata()
         self.action_buffer = self._receive_tensor_metadata()
 
-    def make(self, task: str, num_envs: int, env_cfg_overrides: dict | None = None):
+    def make(
+        self,
+        task: str,
+        num_envs: int,
+        env_cfg_overrides: dict | None = None,
+        generate_video: bool = False,
+    ):
         """Create an environment on the server.
 
         Args:
@@ -66,6 +72,7 @@ class SocketEnvClient(SocketEnv):
                 of the task's default ``EnvCfg``.  Keys may use dot-separated
                 paths for nested attributes, e.g.
                 ``{"episode_length_s": 10.0, "sim.dt": 1/240}``.
+            generate_video: If True, the server will generate videos of the environment.
         """
         if self.sock is None:
             raise RuntimeError("Socket is not connected.")
@@ -75,6 +82,7 @@ class SocketEnvClient(SocketEnv):
                 "task": task,
                 "num_envs": num_envs,
                 "env_cfg_overrides": env_cfg_overrides or {},
+                "generate_video": generate_video,
             }
         )
 

@@ -2,11 +2,14 @@ import os
 import socket
 import torch
 import gymnasium as gym
+import traceback
 
 import isaaclab.sim as sim_utils
 import omni.physx
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
+
+from isaaclab.envs import DirectRLEnv
 
 from .socket_env_base import SocketEnv
 
@@ -14,7 +17,7 @@ class SocketEnvServer(SocketEnv):
 
     def __init__(self, socket_path=None, disable_fabric: bool = False):
         super().__init__(socket_path, disable_fabric=disable_fabric)
-        self.env: gym.Env | None = None
+        self.env: DirectRLEnv | None = None
 
         self.srv: socket.socket | None = None
 
@@ -65,7 +68,7 @@ class SocketEnvServer(SocketEnv):
         if self.env is not None:
             self._cleanup_env()
 
-        make_request = self._receive_pickled_object()
+        make_request: dict = self._receive_pickled_object()
         task = make_request["task"]
         num_envs = make_request["num_envs"]
         env_cfg_overrides: dict = make_request.get("env_cfg_overrides", {})
@@ -88,7 +91,20 @@ class SocketEnvServer(SocketEnv):
             print(f"[isaac_server] Config override: {key} = {value}")
 
         # create environment
-        self.env = gym.make(task, cfg=env_cfg)
+        generate_video = make_request.get("generate_video", False)
+        self.env = gym.make(task, cfg=env_cfg, render_mode="rgb_array" if generate_video else None)
+
+        # Optionally wrap with RecordVideo for server-side video capture
+        if generate_video:
+            # TODO: Change hard-coded video folder path and video_length 
+            video_kwargs = {
+                "video_folder": "/workspace/isaaclab/scripts/server_mode/videos",
+                "step_trigger": lambda step: step == 0,
+                "video_length": 300,
+                "disable_logger": True,
+            }
+            print(f"[isaac_server] Wrapping env with RecordVideo: {video_kwargs}")
+            self.env = gym.wrappers.RecordVideo(self.env, **video_kwargs)
 
         # Create buffers for IPC sharing
         self.obs_buffer = torch.empty(self.env.observation_space.shape, device=self.device)
@@ -242,6 +258,7 @@ class SocketEnvServer(SocketEnv):
                 server_running = False
             except Exception as e:
                 print(f"[isaac_server] Error: {e}")
+                traceback.print_exc()
             finally:
                 self._cleanup_env()
 
