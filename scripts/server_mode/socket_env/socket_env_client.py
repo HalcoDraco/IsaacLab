@@ -1,5 +1,4 @@
 import socket
-import struct
 import torch
 from torch.multiprocessing.reductions import rebuild_cuda_tensor
 import gymnasium as gym
@@ -57,18 +56,27 @@ class SocketEnvClient(SocketEnv):
         self.truncated_buffer = self._receive_tensor_metadata()
         self.action_buffer = self._receive_tensor_metadata()
 
-    def make(self, task: str, num_envs: int):
+    def make(self, task: str, num_envs: int, env_cfg_overrides: dict | None = None):
+        """Create an environment on the server.
+
+        Args:
+            task: The registered gym task id (e.g. ``"Isaac-Cartpole-Direct-v0"``).
+            num_envs: Number of parallel environments.
+            env_cfg_overrides: Optional dict of config overrides applied on top
+                of the task's default ``EnvCfg``.  Keys may use dot-separated
+                paths for nested attributes, e.g.
+                ``{"episode_length_s": 10.0, "sim.dt": 1/240}``.
+        """
         if self.sock is None:
             raise RuntimeError("Socket is not connected.")
         self.sock.sendall(self.MAKE)
-        # Send task configuration (could be extended to send more complex configs)
-        task_bytes = task.encode("utf-8")
-        payload = (
-            struct.pack("!I", len(task_bytes))
-            + task_bytes
-            + struct.pack("!i", num_envs)
+        self._send_pickled_object(
+            {
+                "task": task,
+                "num_envs": num_envs,
+                "env_cfg_overrides": env_cfg_overrides or {},
+            }
         )
-        self.sock.sendall(payload)
 
         self._receive_buffers_metadata()
         self._observation_space = self._receive_pickled_object()

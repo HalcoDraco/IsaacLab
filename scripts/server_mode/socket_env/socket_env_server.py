@@ -1,6 +1,5 @@
 import os
 import socket
-import struct
 import torch
 import gymnasium as gym
 
@@ -66,15 +65,28 @@ class SocketEnvServer(SocketEnv):
         if self.env is not None:
             self._cleanup_env()
 
-        (task_len,) = struct.unpack("!I", self._recv_exact(4))
-        task = self._recv_exact(task_len).decode("utf-8")
-        (num_envs,) = struct.unpack("!i", self._recv_exact(4))
+        make_request = self._receive_pickled_object()
+        task = make_request["task"]
+        num_envs = make_request["num_envs"]
+        env_cfg_overrides: dict = make_request.get("env_cfg_overrides", {})
+
+        print(f"[isaac_server] Received make request: task={task}, num_envs={num_envs}, env_cfg_overrides={env_cfg_overrides}")
 
         env_cfg = parse_env_cfg(
             task, device=self.device, 
             num_envs=num_envs, 
             use_fabric=not self.disable_fabric
         )
+
+        # Apply client-supplied config overrides (dot-separated keys supported)
+        for key, value in env_cfg_overrides.items():
+            parts = key.split(".")
+            obj = env_cfg
+            for part in parts[:-1]:
+                obj = getattr(obj, part)
+            setattr(obj, parts[-1], value)
+            print(f"[isaac_server] Config override: {key} = {value}")
+
         # create environment
         self.env = gym.make(task, cfg=env_cfg)
 
