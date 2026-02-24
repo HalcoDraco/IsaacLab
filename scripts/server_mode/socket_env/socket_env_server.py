@@ -1,3 +1,4 @@
+import gc
 import os
 import socket
 import torch
@@ -205,6 +206,11 @@ class SocketEnvServer(SocketEnv):
         self.truncated_buffer = None
         self.action_buffer = None
 
+        # 7. Run garbage collection and release PyTorch's CUDA memory cache
+        #    so freed GPU blocks are returned to the driver.
+        _run_step("garbage collect", gc.collect)
+        _run_step("empty CUDA cache", torch.cuda.empty_cache)
+
     def _cleanup_env(self):
         """Best-effort teardown that never raises and never touches the socket."""
         self._teardown_env(raise_on_error=False)
@@ -221,7 +227,11 @@ class SocketEnvServer(SocketEnv):
 
                 while True:
                     sig = self.sock.recv(1)
-                    if sig == self.MAKE:
+                    if not sig:
+                        # Client closed the connection (EOF).
+                        print("[isaac_server] Client disconnected.")
+                        break
+                    elif sig == self.MAKE:
                         self._make()
                     elif sig == self.STEP:
                         self._step()

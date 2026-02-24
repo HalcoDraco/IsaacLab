@@ -114,9 +114,40 @@ class SocketEnvClient(SocketEnv):
         return self.obs_buffer
 
     def close(self):
+        """Close the current environment on the server.
+
+        The socket stays open so you can call :meth:`make` again to create a
+        new environment.  To fully disconnect, call :meth:`disconnect`.
+        """
         self._socket_send_receive(self.CLOSE)
         self._observation_space = None
         self._action_space = None
+
+        # Release shared-memory buffer references so they can be freed.
+        self.obs_buffer = None
+        self.rewards_buffer = None
+        self.terminated_buffer = None
+        self.truncated_buffer = None
+        self.action_buffer = None
+
+    def disconnect(self):
+        """Close the environment (if open) and shut down the socket.
+
+        After this call the server sees a clean EOF and goes back to
+        waiting for a new client.  To interact again, create a new
+        :class:`SocketEnvClient`.
+        """
+        if self.sock is None:
+            return
+
+        # Cleanly shut down the socket so the server sees EOF immediately
+        # instead of a connection-reset error.
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.sock.close()
+        self.sock = None
 
     def stop(self):
         self._socket_send_receive(self.STOP)
