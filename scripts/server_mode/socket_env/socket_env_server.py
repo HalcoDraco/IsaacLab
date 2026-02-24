@@ -158,25 +158,7 @@ class SocketEnvServer(SocketEnv):
             raise RuntimeError("Environment not initialized.")
         if self.sock is None:
             raise RuntimeError("No client connected.")
-        
-        # DirectRLEnv.close() only detaches the physx stage and stops the sim when
-        # create_stage_in_memory is True (not the default). Without detaching first,
-        # sim.stop() and create_new_stage() hang because the physics engine still
-        # holds the stage. We must detach explicitly before closing.
-        omni.physx.get_physx_simulation_interface().detach_stage()
-
-        self.env.close()
-
-        # Create a fresh USD stage so old prims don't interfere with the next gym.make()
-        sim_utils.create_new_stage()
-        torch.cuda.synchronize()
-
-        self.env = None
-        self.obs_buffer = None
-        self.rewards_buffer = None
-        self.terminated_buffer = None
-        self.truncated_buffer = None
-        self.action_buffer = None
+        self._teardown_env(raise_on_error=True)
 
         self.sock.sendall(self.CLOSE)
 
@@ -185,38 +167,36 @@ class SocketEnvServer(SocketEnv):
             raise RuntimeError("No client connected.")
         self.sock.sendall(self.STOP)
 
-    def _cleanup_env(self):
-        """Tear down the current environment and leave the simulator ready for a new gym.make().
+    def _teardown_env(self, raise_on_error: bool):
+        """Tear down environment/simulator state.
 
-        Safe to call even when the environment is already closed or was never created.
-        Mirrors the cleanup sequence of ``_close()`` (detach → env.close → new stage)
-        but never raises and never touches the socket.
+        Args:
+            raise_on_error: If True, propagate teardown exceptions.
+                If False, swallow them and print warnings.
         """
+
+        def _run_step(label: str, fn):
+            if raise_on_error:
+                fn()
+            else:
+                try:
+                    fn()
+                except Exception as e:
+                    print(f"[isaac_server] Warning: Failed to {label}: {e}")
+
         # 1. Detach physics so env.close() / create_new_stage() don't hang.
-        try:
-            omni.physx.get_physx_simulation_interface().detach_stage()
-        except Exception as e:
-            print(f"[isaac_server] Warning: Failed to detach stage: {e}")
+        _run_step("detach stage", lambda: omni.physx.get_physx_simulation_interface().detach_stage())
 
         # 2. Close the Gym environment.
         if self.env is not None:
-            try:
-                self.env.close()
-            except Exception as e:
-                print(f"[isaac_server] Warning: Failed to close env: {e}")
+            _run_step("close env", self.env.close)
             self.env = None
 
         # 3. Create a fresh USD stage so the next gym.make() starts clean.
-        try:
-            sim_utils.create_new_stage()
-        except Exception as e:
-            print(f"[isaac_server] Warning: Failed to create new stage: {e}")
+        _run_step("create new stage", sim_utils.create_new_stage)
 
         # 4. Synchronize CUDA to flush any pending work.
-        try:
-            torch.cuda.synchronize()
-        except Exception as e:
-            print(f"[isaac_server] Warning: Failed to synchronize CUDA: {e}")
+        _run_step("synchronize CUDA", torch.cuda.synchronize)
 
         # 5. Release shared buffers.
         self.obs_buffer = None
@@ -224,6 +204,10 @@ class SocketEnvServer(SocketEnv):
         self.terminated_buffer = None
         self.truncated_buffer = None
         self.action_buffer = None
+
+    def _cleanup_env(self):
+        """Best-effort teardown that never raises and never touches the socket."""
+        self._teardown_env(raise_on_error=False)
 
     def run(self):
         server_running = True
@@ -258,7 +242,7 @@ class SocketEnvServer(SocketEnv):
                 server_running = False
             except Exception as e:
                 print(f"[isaac_server] Error: {e}")
-                traceback.print_exc()
+                # traceback.print_exc()
             finally:
                 self._cleanup_env()
 
