@@ -18,15 +18,15 @@ class SocketEnv(ABC):
         if socket_path is None:
             socket_path = self.DEFAULT_SOCKET_PATH
         self._socket_path = socket_path
-        self.sock: socket.socket | None = None
+        self._sock: socket.socket | None = None
         self.device = device
         self.disable_fabric = disable_fabric
 
-        self.obs_buffer: torch.Tensor | None = None
-        self.rewards_buffer: torch.Tensor | None = None
-        self.terminated_buffer: torch.Tensor | None = None
-        self.truncated_buffer: torch.Tensor | None = None
-        self.action_buffer: torch.Tensor | None = None
+        self._obs_buffer: torch.Tensor | None = None
+        self._rewards_buffer: torch.Tensor | None = None
+        self._terminated_buffer: torch.Tensor | None = None
+        self._truncated_buffer: torch.Tensor | None = None
+        self._action_buffer: torch.Tensor | None = None
 
     @staticmethod
     def _get_tensor_metadata(tensor: torch.Tensor) -> dict:
@@ -58,11 +58,11 @@ class SocketEnv(ABC):
 
     def _recv_exact(self, num_bytes: int) -> bytes:
         """Receive exactly ``num_bytes`` bytes from a socket."""
-        if self.sock is None:
+        if self._sock is None:
             raise RuntimeError("Socket is not connected.")
         chunks = bytearray()
         while len(chunks) < num_bytes:
-            chunk = self.sock.recv(num_bytes - len(chunks))
+            chunk = self._sock.recv(num_bytes - len(chunks))
             if not chunk:
                 raise RuntimeError("Socket connection closed while receiving data.")
             chunks.extend(chunk)
@@ -75,7 +75,7 @@ class SocketEnv(ABC):
 
     def _send_pickled_object(self, obj):
         """Send a length-prefixed pickled object over a socket."""
-        if self.sock is None:
+        if self._sock is None:
             raise RuntimeError("Socket is not connected.")
         payload = pickle.dumps(obj)
-        self.sock.sendall(struct.pack("!I", len(payload)) + payload)
+        self._sock.sendall(struct.pack("!I", len(payload)) + payload)

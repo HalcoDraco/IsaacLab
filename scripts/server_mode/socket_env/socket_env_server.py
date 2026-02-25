@@ -38,32 +38,32 @@ class SocketEnvServer(SocketEnv):
         
         while True:
             try:
-                self.sock, _ = self.srv.accept()
+                self._sock, _ = self.srv.accept()
                 break
             except socket.timeout:
                 continue
 
     def _send_tensor_metadata(self, tensor: torch.Tensor):
-        if self.sock is None:
+        if self._sock is None:
             raise RuntimeError("No client connected.")
         self._send_pickled_object(self._get_tensor_metadata(tensor))
 
     def _send_buffers_metadata(self):
-        if self.obs_buffer is None or \
-            self.rewards_buffer is None or \
-            self.terminated_buffer is None or \
-            self.truncated_buffer is None or \
-            self.action_buffer is None:
+        if self._obs_buffer is None or \
+            self._rewards_buffer is None or \
+            self._terminated_buffer is None or \
+            self._truncated_buffer is None or \
+            self._action_buffer is None:
             raise RuntimeError("Buffers not initialized.")
-        self._send_tensor_metadata(self.obs_buffer)
-        self._send_tensor_metadata(self.rewards_buffer)
-        self._send_tensor_metadata(self.terminated_buffer)
-        self._send_tensor_metadata(self.truncated_buffer)
-        self._send_tensor_metadata(self.action_buffer)
+        self._send_tensor_metadata(self._obs_buffer)
+        self._send_tensor_metadata(self._rewards_buffer)
+        self._send_tensor_metadata(self._terminated_buffer)
+        self._send_tensor_metadata(self._truncated_buffer)
+        self._send_tensor_metadata(self._action_buffer)
 
     def _make(self):
         # Receive task configuration from client
-        if self.sock is None:
+        if self._sock is None:
             raise RuntimeError("No client connected.")
         
         if self.env is not None:
@@ -101,18 +101,18 @@ class SocketEnvServer(SocketEnv):
             video_kwargs = {
                 "video_folder": "/workspace/isaaclab/scripts/server_mode/videos",
                 "step_trigger": lambda step: step == 0,
-                "video_length": 300,
+                "video_length": 0,
                 "disable_logger": True,
             }
             print(f"[isaac_server] Wrapping env with RecordVideo: {video_kwargs}")
             self.env = gym.wrappers.RecordVideo(self.env, **video_kwargs)
 
         # Create buffers for IPC sharing
-        self.obs_buffer = torch.empty(self.env.observation_space.shape, device=self.device)
-        self.rewards_buffer = torch.empty((num_envs,), device=self.device)
-        self.terminated_buffer = torch.empty((num_envs,), dtype=torch.bool, device=self.device)
-        self.truncated_buffer = torch.empty((num_envs,), dtype=torch.bool, device=self.device)
-        self.action_buffer = torch.empty(self.env.action_space.shape, device=self.device)
+        self._obs_buffer = torch.empty(self.env.observation_space.shape, device=self.device)
+        self._rewards_buffer = torch.empty((num_envs,), device=self.device)
+        self._terminated_buffer = torch.empty((num_envs,), dtype=torch.bool, device=self.device)
+        self._truncated_buffer = torch.empty((num_envs,), dtype=torch.bool, device=self.device)
+        self._action_buffer = torch.empty(self.env.action_space.shape, device=self.device)
 
         torch.cuda.synchronize()
         self._send_buffers_metadata()
@@ -122,51 +122,51 @@ class SocketEnvServer(SocketEnv):
     def _step(self):
         if self.env is None:
             raise RuntimeError("Environment not initialized.")
-        if self.sock is None:
+        if self._sock is None:
             raise RuntimeError("No client connected.")
-        if self.obs_buffer is None or \
-            self.rewards_buffer is None or \
-            self.terminated_buffer is None or \
-            self.truncated_buffer is None or \
-            self.action_buffer is None:
+        if self._obs_buffer is None or \
+            self._rewards_buffer is None or \
+            self._terminated_buffer is None or \
+            self._truncated_buffer is None or \
+            self._action_buffer is None:
             raise RuntimeError("Buffers not initialized.")
         
-        obs_dict, rewards, terminated, truncated, infos = self.env.step(self.action_buffer)
+        obs_dict, rewards, terminated, truncated, infos = self.env.step(self._action_buffer)
         obs = obs_dict["policy"] if isinstance(obs_dict, dict) else obs_dict
-        self.obs_buffer.copy_(obs)
-        self.rewards_buffer.copy_(rewards)
-        self.terminated_buffer.copy_(terminated)
-        self.truncated_buffer.copy_(truncated)
+        self._obs_buffer.copy_(obs)
+        self._rewards_buffer.copy_(rewards)
+        self._terminated_buffer.copy_(terminated)
+        self._truncated_buffer.copy_(truncated)
         torch.cuda.synchronize()
-        self.sock.sendall(self.STEP)
+        self._sock.sendall(self.STEP)
 
     def _reset(self):
         if self.env is None:
             raise RuntimeError("Environment not initialized.")
-        if self.sock is None:
+        if self._sock is None:
             raise RuntimeError("No client connected.")
-        if self.obs_buffer is None:
+        if self._obs_buffer is None:
             raise RuntimeError("Observation buffer not initialized.")
         
         obs_dict, _ = self.env.reset()
         obs = obs_dict["policy"] if isinstance(obs_dict, dict) else obs_dict
-        self.obs_buffer.copy_(obs)
+        self._obs_buffer.copy_(obs)
         torch.cuda.synchronize()
-        self.sock.sendall(self.RESET)
+        self._sock.sendall(self.RESET)
 
     def _close(self):
         if self.env is None:
             raise RuntimeError("Environment not initialized.")
-        if self.sock is None:
+        if self._sock is None:
             raise RuntimeError("No client connected.")
         self._teardown_env(raise_on_error=True)
 
-        self.sock.sendall(self.CLOSE)
+        self._sock.sendall(self.CLOSE)
 
     def _stop(self):
-        if self.sock is None:
+        if self._sock is None:
             raise RuntimeError("No client connected.")
-        self.sock.sendall(self.STOP)
+        self._sock.sendall(self.STOP)
 
     def _teardown_env(self, raise_on_error: bool):
         """Tear down environment/simulator state.
@@ -200,11 +200,11 @@ class SocketEnvServer(SocketEnv):
         _run_step("synchronize CUDA", torch.cuda.synchronize)
 
         # 5. Release shared buffers.
-        self.obs_buffer = None
-        self.rewards_buffer = None
-        self.terminated_buffer = None
-        self.truncated_buffer = None
-        self.action_buffer = None
+        self._obs_buffer = None
+        self._rewards_buffer = None
+        self._terminated_buffer = None
+        self._truncated_buffer = None
+        self._action_buffer = None
 
         # 7. Run garbage collection and release PyTorch's CUDA memory cache
         #    so freed GPU blocks are returned to the driver.
@@ -222,11 +222,11 @@ class SocketEnvServer(SocketEnv):
                 self._prepare_socket()
                 print("[isaac_server] Waiting for connection…")
                 self._wait_for_client()
-                assert self.sock is not None
+                assert self._sock is not None
                 print("[isaac_server] Client connected.")
 
                 while True:
-                    sig = self.sock.recv(1)
+                    sig = self._sock.recv(1)
                     if not sig:
                         # Client closed the connection (EOF).
                         print("[isaac_server] Client disconnected.")
@@ -256,9 +256,9 @@ class SocketEnvServer(SocketEnv):
             finally:
                 self._cleanup_env()
 
-                if self.sock is not None:
-                    self.sock.close()
-                    self.sock = None
+                if self._sock is not None:
+                    self._sock.close()
+                    self._sock = None
                 if self.srv is not None:
                     self.srv.close()
                     self.srv = None
