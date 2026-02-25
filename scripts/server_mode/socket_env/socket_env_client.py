@@ -16,6 +16,7 @@ class SocketEnvClient(SocketEnv):
         self._action_space: gym.spaces.Space = None
         self._env_cfg_overrides: dict | None = None
         self._generate_video: bool | None = None
+        self._max_episode_length: int | None = None
         self.is_made = False
 
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -56,6 +57,12 @@ class SocketEnvClient(SocketEnv):
         if not self.is_made:
             raise RuntimeError("Environment not initialized.")
         return self._generate_video
+
+    @property
+    def max_episode_length(self):
+        if not self.is_made:
+            raise RuntimeError("Environment not initialized.")
+        return self._max_episode_length
 
     def _socket_send_receive(self, sig_send: bytes):
         if self._sock is None:
@@ -117,6 +124,7 @@ class SocketEnvClient(SocketEnv):
         self.is_made = True
         self._observation_space = self._receive_pickled_object()
         self._action_space = self._receive_pickled_object()
+        self._max_episode_length = self._receive_pickled_object()
 
     def step(self, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
@@ -160,6 +168,7 @@ class SocketEnvClient(SocketEnv):
         self._num_envs = None
         self._env_cfg_overrides = None
         self._generate_video = None
+        self._max_episode_length = None
         self._observation_space = None
         self._action_space = None
         self.is_made = False

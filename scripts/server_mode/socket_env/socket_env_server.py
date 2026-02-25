@@ -117,6 +117,7 @@ class SocketEnvServer(SocketEnv):
         self._send_buffers_metadata()
         self._send_pickled_object(self.env.observation_space)
         self._send_pickled_object(self.env.action_space)
+        self._send_pickled_object(self.env.unwrapped.max_episode_length)
 
     def _step(self):
         if self.env is None:
