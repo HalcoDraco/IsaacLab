@@ -97,9 +97,8 @@ class SocketEnvServer(SocketEnv):
 
         # Optionally wrap with RecordVideo for server-side video capture
         if generate_video:
-            # TODO: Change hard-coded video folder path and video_length 
             video_kwargs = {
-                "video_folder": "/workspace/isaaclab/scripts/server_mode/videos",
+                "video_folder": f"{os.getcwd()}/scripts/server_mode/videos",
                 "step_trigger": lambda step: step == 0,
                 "video_length": 0,
                 "disable_logger": True,
