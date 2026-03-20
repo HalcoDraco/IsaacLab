@@ -5,6 +5,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+import torch
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg
 from isaaclab.envs import DirectRLEnvCfg
@@ -12,6 +16,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.math import sample_uniform
 
 from isaaclab_tasks.direct.locomotion.locomotion_env import LocomotionEnv
 
@@ -89,9 +94,46 @@ class HumanoidEnvCfg(DirectRLEnvCfg):
     angular_velocity_scale: float = 0.25
     contact_force_scale: float = 0.01
 
+    # reset randomization
+    reset_dof_pos_range: tuple[float, float] = (-0.02, 0.02)
+    reset_dof_vel_range: tuple[float, float] = (-0.01, 0.01)
+
 
 class HumanoidEnv(LocomotionEnv):
     cfg: HumanoidEnvCfg
 
     def __init__(self, cfg: HumanoidEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+
+    def _reset_idx(self, env_ids: Sequence[int] | None):
+        if env_ids is None or len(env_ids) == self.num_envs:
+            env_ids = self.robot._ALL_INDICES
+        super()._reset_idx(env_ids)
+
+        joint_pos = self.robot.data.default_joint_pos[env_ids]
+        joint_pos += sample_uniform(
+            self.cfg.reset_dof_pos_range[0],
+            self.cfg.reset_dof_pos_range[1],
+            joint_pos.shape,
+            joint_pos.device,
+        )
+        joint_vel = self.robot.data.default_joint_vel[env_ids]
+        joint_vel += sample_uniform(
+            self.cfg.reset_dof_vel_range[0],
+            self.cfg.reset_dof_vel_range[1],
+            joint_vel.shape,
+            joint_vel.device,
+        )
+
+        default_root_state = self.robot.data.default_root_state[env_ids]
+        default_root_state[:, :3] += self.scene.env_origins[env_ids]
+
+        self.robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
+        self.robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
+        self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+
+        to_target = self.targets[env_ids] - default_root_state[:, :3]
+        to_target[:, 2] = 0.0
+        self.potentials[env_ids] = -torch.norm(to_target, p=2, dim=-1) / self.cfg.sim.dt
+
+        self._compute_intermediate_values()
