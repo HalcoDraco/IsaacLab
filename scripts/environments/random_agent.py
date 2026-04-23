@@ -37,29 +37,7 @@ import time
 def main():
     """Random actions agent with Isaac Lab environment."""
 
-    # print info (this is vectorized environment)
-    print(f"[INFO]: Gym observation space: {env.observation_space}")
-    print(f"[INFO]: Gym action space: {env.action_space}")
-    # reset environment
-    env.reset()
-
-
-    # simulate environment
-    BENCHMARK_INTERVAL = 100.0
-    step = 0
-    start = time.perf_counter()
-    while simulation_app.is_running():
-        # run everything in inference mode
-        with torch.inference_mode():
-            # sample actions from -1 to 1
-            actions = 2 * torch.rand(env.action_space.shape, device=env.unwrapped.device) - 1
-            # apply actions
-            env.step(actions)
-            step += 1
-        
-        if step % BENCHMARK_INTERVAL == 0:
-            print(f"[INFO]: Steps/s = {BENCHMARK_INTERVAL / (time.perf_counter() - start):.2f}")
-            start = time.perf_counter()
+    torch.manual_seed(42)
 
     # parse configuration via Hydra (supports preset selection, e.g. env.sim.physics=newton)
     env_cfg, _ = resolve_task_config(args_cli.task, "")

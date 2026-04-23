@@ -127,6 +127,16 @@ class SocketEnvClient(SocketEnv):
         self._max_episode_length = self._receive_pickled_object()
 
     def step(self, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Take an environment step on the server with the given actions.
+        Args:
+            actions: A tensor of shape (num_envs, action_dim) containing the actions to take in each environment.  Must be on the same device as the shared action buffer.
+        Returns:
+            A tuple of (observations, rewards, terminated, truncated), where:
+            - observations: A tensor of shape (num_envs, obs_dim) containing the next observations from each environment.
+            - rewards: A tensor of shape (num_envs,) containing the rewards from each environment.
+            - terminated: A boolean tensor of shape (num_envs,) indicating whether each environment has terminated.
+            - truncated: A boolean tensor of shape (num_envs,) indicating whether each environment has been truncated due to time limits.
+        """
 
         if self._obs_buffer is None or \
             self._rewards_buffer is None or \
