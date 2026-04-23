@@ -5,16 +5,22 @@
 
 """Sub-module with utilities for parsing and loading configurations."""
 
+from __future__ import annotations
+
 import collections
 import importlib
 import inspect
 import os
 import re
+from typing import TYPE_CHECKING
 
 import gymnasium as gym
 import yaml
 
-from isaaclab.envs import DirectRLEnvCfg, ManagerBasedRLEnvCfg
+from isaaclab_tasks.utils.hydra import resolve_presets
+
+if TYPE_CHECKING:
+    from isaaclab.envs import DirectRLEnvCfg, ManagerBasedRLEnvCfg
 
 
 def load_cfg_from_registry(task_name: str, entry_point_key: str) -> dict | object:
@@ -144,6 +150,13 @@ def parse_env_cfg(
     # we assume users always use a class for the configuration
     if isinstance(cfg, dict):
         raise RuntimeError(f"Configuration for the task: '{task_name}' is not a class. Please provide a class.")
+
+    # Resolve any PresetCfg wrappers to their default preset so the config
+    # is usable without a Hydra CLI override (e.g. in tests).
+    # Must happen BEFORE attribute overrides, otherwise overrides on PresetCfg wrapper
+    # fields (e.g. cfg.scene when scene is a PresetCfg) get discarded when the wrapper
+    # is replaced by its .default.
+    cfg = resolve_presets(cfg)
 
     # simulation device
     cfg.sim.device = device

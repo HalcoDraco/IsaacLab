@@ -6,11 +6,11 @@
 
 import os
 
+from isaaclab_physx.physics import PhysxCfg
+
 import isaaclab.sim as sim_utils
-from isaaclab.devices.device_base import DeviceBase, DevicesCfg
+from isaaclab.devices.device_base import DevicesCfg
 from isaaclab.devices.keyboard import Se3KeyboardCfg
-from isaaclab.devices.openxr.openxr_device import OpenXRDeviceCfg
-from isaaclab.devices.openxr.retargeters import GripperRetargeterCfg, Se3RelRetargeterCfg
 from isaaclab.devices.spacemouse import Se3SpaceMouseCfg
 from isaaclab.envs.mdp.actions.rmpflow_actions_cfg import RMPFlowActionCfg
 from isaaclab.sensors import CameraCfg, FrameTransformerCfg
@@ -55,9 +55,25 @@ class RmpFlowGalbotLeftArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotLeftArmC
             controller=GALBOT_LEFT_ARM_RMPFLOW_CFG,
             scale=1.0,
             body_offset=RMPFlowActionCfg.OffsetCfg(pos=[0.0, 0.0, 0.0]),
-            articulation_prim_expr="/World/envs/env_.*/Robot",
             use_relative_mode=self.use_relative_mode,
         )
+
+        # Relative mode uses legacy teleop (keyboard/spacemouse) instead of XR;
+        # absolute mode keeps the inherited XR isaac_teleop pipeline.
+        if self.use_relative_mode:
+            self.isaac_teleop = None
+            self.teleop_devices = DevicesCfg(
+                devices={
+                    "keyboard": Se3KeyboardCfg(
+                        pos_sensitivity=0.05,
+                        rot_sensitivity=0.05,
+                    ),
+                    "spacemouse": Se3SpaceMouseCfg(
+                        pos_sensitivity=0.05,
+                        rot_sensitivity=0.05,
+                    ),
+                }
+            )
 
         # Set the simulation parameters
         self.sim.dt = 1 / 60
@@ -65,39 +81,6 @@ class RmpFlowGalbotLeftArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotLeftArmC
 
         self.decimation = 3
         self.episode_length_s = 30.0
-
-        self.teleop_devices = DevicesCfg(
-            devices={
-                "keyboard": Se3KeyboardCfg(
-                    pos_sensitivity=0.05,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-                "spacemouse": Se3SpaceMouseCfg(
-                    pos_sensitivity=0.05,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-                "handtracking": OpenXRDeviceCfg(
-                    retargeters=[
-                        Se3RelRetargeterCfg(
-                            bound_hand=DeviceBase.TrackingTarget.HAND_LEFT,
-                            zero_out_xy_rotation=True,
-                            use_wrist_rotation=False,
-                            use_wrist_position=True,
-                            delta_pos_scale_factor=10.0,
-                            delta_rot_scale_factor=10.0,
-                            sim_device=self.sim.device,
-                        ),
-                        GripperRetargeterCfg(
-                            bound_hand=DeviceBase.TrackingTarget.HAND_LEFT, sim_device=self.sim.device
-                        ),
-                    ],
-                    sim_device=self.sim.device,
-                    xr_cfg=self.xr,
-                ),
-            }
-        )
 
 
 ##
@@ -122,9 +105,26 @@ class RmpFlowGalbotRightArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotRightAr
             controller=GALBOT_RIGHT_ARM_RMPFLOW_CFG,
             scale=1.0,
             body_offset=RMPFlowActionCfg.OffsetCfg(pos=[0.0, 0.0, 0.0]),
-            articulation_prim_expr="/World/envs/env_.*/Robot",
             use_relative_mode=self.use_relative_mode,
         )
+
+        # Relative mode uses legacy teleop (keyboard/spacemouse) instead of XR;
+        # absolute mode keeps the inherited XR isaac_teleop pipeline.
+        if self.use_relative_mode:
+            self.isaac_teleop = None
+            self.teleop_devices = DevicesCfg(
+                devices={
+                    "keyboard": Se3KeyboardCfg(
+                        pos_sensitivity=0.05,
+                        rot_sensitivity=0.05,
+                    ),
+                    "spacemouse": Se3SpaceMouseCfg(
+                        pos_sensitivity=0.05,
+                        rot_sensitivity=0.05,
+                    ),
+                }
+            )
+
         # Set the simulation parameters
         self.sim.dt = 1 / 120
         self.sim.render_interval = 6
@@ -133,40 +133,7 @@ class RmpFlowGalbotRightArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotRightAr
         self.episode_length_s = 30.0
 
         # Enable CCD to avoid tunneling
-        self.sim.physx.enable_ccd = True
-
-        self.teleop_devices = DevicesCfg(
-            devices={
-                "keyboard": Se3KeyboardCfg(
-                    pos_sensitivity=0.05,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-                "spacemouse": Se3SpaceMouseCfg(
-                    pos_sensitivity=0.05,
-                    rot_sensitivity=0.05,
-                    sim_device=self.sim.device,
-                ),
-                "handtracking": OpenXRDeviceCfg(
-                    retargeters=[
-                        Se3RelRetargeterCfg(
-                            bound_hand=DeviceBase.TrackingTarget.HAND_RIGHT,
-                            zero_out_xy_rotation=True,
-                            use_wrist_rotation=False,
-                            use_wrist_position=True,
-                            delta_pos_scale_factor=10.0,
-                            delta_rot_scale_factor=10.0,
-                            sim_device=self.sim.device,
-                        ),
-                        GripperRetargeterCfg(
-                            bound_hand=DeviceBase.TrackingTarget.HAND_RIGHT, sim_device=self.sim.device
-                        ),
-                    ],
-                    sim_device=self.sim.device,
-                    xr_cfg=self.xr,
-                ),
-            }
-        )
+        self.sim.physics = PhysxCfg(enable_ccd=True)
 
 
 ##
@@ -188,7 +155,7 @@ class RmpFlowGalbotLeftArmCubeStackVisuomotorEnvCfg(RmpFlowGalbotLeftArmCubeStac
             spawn=sim_utils.PinholeCameraCfg(
                 focal_length=18.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
             ),
-            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=(0.5, -0.5, 0.5, -0.5), convention="ros"),
+            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=(-0.5, 0.5, -0.5, 0.5), convention="ros"),
         )
 
         self.scene.left_wrist_cam = CameraCfg(
@@ -200,7 +167,7 @@ class RmpFlowGalbotLeftArmCubeStackVisuomotorEnvCfg(RmpFlowGalbotLeftArmCubeStac
             spawn=sim_utils.PinholeCameraCfg(
                 focal_length=18.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
             ),
-            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=(0.5, -0.5, 0.5, -0.5), convention="ros"),
+            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=(-0.5, 0.5, -0.5, 0.5), convention="ros"),
         )
 
         # Set ego view camera
@@ -213,7 +180,7 @@ class RmpFlowGalbotLeftArmCubeStackVisuomotorEnvCfg(RmpFlowGalbotLeftArmCubeStac
             spawn=sim_utils.PinholeCameraCfg(
                 focal_length=18.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
             ),
-            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=(0.5, -0.5, 0.5, -0.5), convention="ros"),
+            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=(-0.5, 0.5, -0.5, 0.5), convention="ros"),
         )
 
         # Set front view camera
@@ -226,7 +193,7 @@ class RmpFlowGalbotLeftArmCubeStackVisuomotorEnvCfg(RmpFlowGalbotLeftArmCubeStac
             spawn=sim_utils.PinholeCameraCfg(
                 focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
             ),
-            offset=CameraCfg.OffsetCfg(pos=(1.0, 0.0, 0.6), rot=(-0.3799, 0.5963, 0.5963, -0.3799), convention="ros"),
+            offset=CameraCfg.OffsetCfg(pos=(1.0, 0.0, 0.6), rot=(0.5963, 0.5963, -0.3799, -0.3799), convention="ros"),
         )
 
         marker_right_camera_cfg = FRAME_MARKER_CFG.copy()
@@ -243,7 +210,7 @@ class RmpFlowGalbotLeftArmCubeStackVisuomotorEnvCfg(RmpFlowGalbotLeftArmCubeStac
                     name="right_camera",
                     offset=OffsetCfg(
                         pos=[0.0, 0.0, 0.0],
-                        rot=(0.5, -0.5, 0.5, -0.5),
+                        rot=(-0.5, 0.5, -0.5, 0.5),
                     ),
                 ),
             ],
@@ -263,7 +230,7 @@ class RmpFlowGalbotLeftArmCubeStackVisuomotorEnvCfg(RmpFlowGalbotLeftArmCubeStac
                     name="left_camera",
                     offset=OffsetCfg(
                         pos=[0.0, 0.0, 0.0],
-                        rot=(0.5, -0.5, 0.5, -0.5),
+                        rot=(-0.5, 0.5, -0.5, 0.5),
                     ),
                 ),
             ],

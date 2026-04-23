@@ -133,7 +133,7 @@ def main():
         cam_prim_path,
         prim_type="Camera",
         translation=(5.0, 5.0, 5.0),
-        orientation=(0.33985113, 0.17591988, 0.42470818, 0.82047324),
+        orientation=(0.17591988, 0.42470818, 0.82047324, 0.33985113),
     )
     _ = UsdGeom.Camera(cam_prim)
     # Get render product
@@ -167,12 +167,6 @@ def main():
         initial_pos, initial_quat = view.get_world_poses()
         initial_joint_pos = view.get_joint_positions()
         initial_joint_vel = view.get_joint_velocities()
-
-    # Simulate for a few steps
-    # note: This is a workaround to ensure that the textures are loaded.
-    #   Check "Known Issues" section in the documentation for more details.
-    for _ in range(5):
-        world.step(render=True)
 
     # Counter
     count = 0

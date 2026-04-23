@@ -26,19 +26,17 @@ interpretation of the prim paths for different sensor types:
 +---------------------+---------------------------+---------------------------------------------------------------+
 | Contact Sensor      | /World/robot/feet_*       | Leaf is available and checks if the schema exists             |
 +---------------------+---------------------------+---------------------------------------------------------------+
-| Ray Caster          | /World/robot/base         | Leaf exists and is a physics body (Articulation / Rigid Body) |
+| Ray Caster          | /World/robot/base/raycast | ``spawn`` creates an Xform leaf; else the leaf must exist     |
 +---------------------+---------------------------+---------------------------------------------------------------+
 | Frame Transformer   | /World/robot/base         | Leaf exists and is a physics body (Articulation / Rigid Body) |
 +---------------------+---------------------------+---------------------------------------------------------------+
 | Imu                 | /World/robot/base         | Leaf exists and is a physics body (Rigid Body)                |
 +---------------------+---------------------------+---------------------------------------------------------------+
+| Pva                 | /World/robot/base         | Leaf exists and is a physics body (Rigid Body)                |
++---------------------+---------------------------+---------------------------------------------------------------+
 
 """
 
-from .camera import *  # noqa: F401, F403
-from .contact_sensor import *  # noqa: F401, F403
-from .frame_transformer import *  # noqa: F401
-from .imu import *  # noqa: F401, F403
-from .ray_caster import *  # noqa: F401, F403
-from .sensor_base import SensorBase  # noqa: F401
-from .sensor_base_cfg import SensorBaseCfg  # noqa: F401
+from isaaclab.utils.module import lazy_export
+
+lazy_export()

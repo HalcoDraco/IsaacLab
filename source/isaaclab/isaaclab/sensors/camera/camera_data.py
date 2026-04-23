@@ -26,7 +26,7 @@ class CameraData:
     """
 
     quat_w_world: torch.Tensor = None
-    """Quaternion orientation `(w, x, y, z)` of the sensor origin in world frame, following the world coordinate frame
+    """Quaternion orientation `(x, y, z, w)` of the sensor origin in world frame, following the world coordinate frame
 
     .. note::
         World frame convention follows the camera aligned with forward axis +X and up axis +Z.
@@ -56,7 +56,7 @@ class CameraData:
     .. _Replicator Documentation: https://docs.omniverse.nvidia.com/prod_extensions/prod_extensions/ext_replicator/annotators_details.html#annotator-output
     """
 
-    info: list[dict[str, Any]] = None
+    info: dict[str, Any] = None
     """The retrieved sensor info with sensor types as key.
 
     This contains extra information provided by the sensor such as semantic segmentation label mapping, prim paths.
@@ -70,7 +70,7 @@ class CameraData:
 
     @property
     def quat_w_ros(self) -> torch.Tensor:
-        """Quaternion orientation `(w, x, y, z)` of the sensor origin in the world frame, following ROS convention.
+        """Quaternion orientation `(x, y, z, w)` of the sensor origin in the world frame, following ROS convention.
 
         .. note::
             ROS convention follows the camera aligned with forward axis +Z and up axis -Y.
@@ -81,7 +81,7 @@ class CameraData:
 
     @property
     def quat_w_opengl(self) -> torch.Tensor:
-        """Quaternion orientation `(w, x, y, z)` of the sensor origin in the world frame, following
+        """Quaternion orientation `(x, y, z, w)` of the sensor origin in the world frame, following
         Opengl / USD Camera convention.
 
         .. note::

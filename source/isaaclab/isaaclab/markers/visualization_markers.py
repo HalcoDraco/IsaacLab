@@ -20,36 +20,19 @@ The marker prototypes can be configured with the :class:`VisualizationMarkersCfg
 from __future__ import annotations
 
 import logging
-from dataclasses import MISSING
 
 import numpy as np
 import torch
 
-import omni.physx.scripts.utils as physx_utils
-from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics, Vt
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, Vt
 
 import isaaclab.sim as sim_utils
-from isaaclab.sim.spawners import SpawnerCfg
-from isaaclab.utils.configclass import configclass
-from isaaclab.utils.math import convert_quat
+from isaaclab.utils.version import has_kit
+
+from .visualization_markers_cfg import VisualizationMarkersCfg
 
 # import logger
 logger = logging.getLogger(__name__)
-
-
-@configclass
-class VisualizationMarkersCfg:
-    """A class to configure a :class:`VisualizationMarkers`."""
-
-    prim_path: str = MISSING
-    """The prim path where the :class:`UsdGeom.PointInstancer` will be created."""
-
-    markers: dict[str, SpawnerCfg] = MISSING
-    """The dictionary of marker configurations.
-
-    The key is the name of the marker, and the value is the configuration of the marker.
-    The key is used to identify the marker in the class.
-    """
 
 
 class VisualizationMarkers:
@@ -258,7 +241,7 @@ class VisualizationMarkers:
         Args:
             translations: Translations w.r.t. parent prim frame. Shape is (M, 3).
                 Defaults to None, which means left unchanged.
-            orientations: Quaternion orientations (w, x, y, z) w.r.t. parent prim frame. Shape is (M, 4).
+            orientations: Quaternion orientations (x, y, z, w) w.r.t. parent prim frame. Shape is (M, 4).
                 Defaults to None, which means left unchanged.
             scales: Scale applied before any rotation is applied. Shape is (M, 3).
                 Defaults to None, which means left unchanged.
@@ -295,10 +278,7 @@ class VisualizationMarkers:
             # check that shape is correct
             if orientations.shape[1] != 4 or len(orientations.shape) != 2:
                 raise ValueError(f"Expected `orientations` to have shape (M, 4). Received: {orientations.shape}.")
-            # roll orientations from (w, x, y, z) to (x, y, z, w)
-            # internally USD expects (x, y, z, w)
-            orientations = convert_quat(orientations, to="xyzw")
-            # apply orientations
+            # apply orientations (already in xyzw format expected by USD)
             self._instancer_manager.GetOrientationsAttr().Set(Vt.QuathArray.FromNumpy(orientations))
             # update number of markers
             num_markers = orientations.shape[0]
@@ -385,10 +365,10 @@ class VisualizationMarkers:
             # check if it is physics body -> if so, remove it
             if child_prim.HasAPI(UsdPhysics.ArticulationRootAPI):
                 child_prim.RemoveAPI(UsdPhysics.ArticulationRootAPI)
-                child_prim.RemoveAPI(PhysxSchema.PhysxArticulationAPI)
+                child_prim.RemoveAppliedSchema("PhysxArticulationAPI")
             if child_prim.HasAPI(UsdPhysics.RigidBodyAPI):
                 child_prim.RemoveAPI(UsdPhysics.RigidBodyAPI)
-                child_prim.RemoveAPI(PhysxSchema.PhysxRigidBodyAPI)
+                child_prim.RemoveAppliedSchema("PhysxRigidBodyAPI")
             if child_prim.IsA(UsdPhysics.Joint):
                 child_prim.GetAttribute("physics:jointEnabled").Set(False)
             # check if prim is instanced -> if so, make it uninstanceable
@@ -407,4 +387,7 @@ class VisualizationMarkers:
             all_prims += child_prim.GetChildren()
 
         # remove any physics on the markers because they are only for visualization!
-        physx_utils.removeRigidBodySubtree(prim)
+        if has_kit():
+            import omni.physx.scripts.utils as physx_utils
+
+            physx_utils.removeRigidBodySubtree(prim)

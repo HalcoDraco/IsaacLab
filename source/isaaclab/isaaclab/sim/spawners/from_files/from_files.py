@@ -5,11 +5,17 @@
 
 from __future__ import annotations
 
+import fcntl
 import logging
+import os
+import tempfile
 from typing import TYPE_CHECKING
 
-import omni.kit.commands
-from pxr import Gf, Sdf, Usd
+# deformables only supported on PhysX backend
+from isaaclab_physx.sim import schemas as schemas_physx
+from isaaclab_physx.sim.spawners.materials import SurfaceDeformableBodyMaterialCfg
+
+from pxr import Gf, Sdf, Usd, UsdGeom
 
 from isaaclab.sim import converters, schemas
 from isaaclab.sim.spawners.materials import RigidBodyMaterialCfg
@@ -25,7 +31,8 @@ from isaaclab.sim.utils import (
     select_usd_variants,
     set_prim_visibility,
 )
-from isaaclab.utils.assets import check_usd_path_with_timeout
+from isaaclab.utils.assets import check_file_path, retrieve_file_path
+from isaaclab.utils.version import has_kit
 
 if TYPE_CHECKING:
     from . import from_files_cfg
@@ -62,7 +69,7 @@ def spawn_from_usd(
         cfg: The configuration instance.
         translation: The translation to apply to the prim w.r.t. its parent prim. Defaults to None, in which
             case the translation specified in the USD file is used.
-        orientation: The orientation in (w, x, y, z) to apply to the prim w.r.t. its parent prim. Defaults to None,
+        orientation: The orientation in (x, y, z, w) to apply to the prim w.r.t. its parent prim. Defaults to None,
             in which case the orientation specified in the USD file is used.
         **kwargs: Additional keyword arguments, like ``clone_in_fabric``.
 
@@ -104,7 +111,7 @@ def spawn_from_urdf(
         cfg: The configuration instance.
         translation: The translation to apply to the prim w.r.t. its parent prim. Defaults to None, in which
             case the translation specified in the generated USD file is used.
-        orientation: The orientation in (w, x, y, z) to apply to the prim w.r.t. its parent prim. Defaults to None,
+        orientation: The orientation in (x, y, z, w) to apply to the prim w.r.t. its parent prim. Defaults to None,
             in which case the orientation specified in the generated USD file is used.
         **kwargs: Additional keyword arguments, like ``clone_in_fabric``.
 
@@ -147,7 +154,7 @@ def spawn_from_mjcf(
         cfg: The configuration instance.
         translation: The translation to apply to the prim w.r.t. its parent prim. Defaults to None, in which
             case the translation specified in the generated USD file is used.
-        orientation: The orientation in (w, x, y, z) to apply to the prim w.r.t. its parent prim. Defaults to None,
+        orientation: The orientation in (x, y, z, w) to apply to the prim w.r.t. its parent prim. Defaults to None,
             in which case the orientation specified in the generated USD file is used.
 
     Returns:
@@ -184,7 +191,7 @@ def spawn_ground_plane(
         cfg: The configuration instance.
         translation: The translation to apply to the prim w.r.t. its parent prim. Defaults to None, in which
             case the translation specified in the USD file is used.
-        orientation: The orientation in (w, x, y, z) to apply to the prim w.r.t. its parent prim. Defaults to None,
+        orientation: The orientation in (x, y, z, w) to apply to the prim w.r.t. its parent prim. Defaults to None,
             in which case the orientation specified in the USD file is used.
         **kwargs: Additional keyword arguments, like ``clone_in_fabric``.
 
@@ -238,9 +245,12 @@ def spawn_ground_plane(
             stage=stage,
             type_to_create_if_not_exist=Sdf.ValueTypeNames.Color3f,
         )
-    # Remove the light from the ground plane
+    # Remove the light from the ground plane (USD API, works without Kit/Newton)
     # It isn't bright enough and messes up with the user's lighting settings
-    omni.kit.commands.execute("ToggleVisibilitySelectedPrims", selected_paths=[f"{prim_path}/SphereLight"], stage=stage)
+    light_prim = stage.GetPrimAtPath(f"{prim_path}/SphereLight")
+    if light_prim.IsValid():
+        imageable = UsdGeom.Imageable(light_prim)
+        imageable.MakeInvisible()
 
     prim = stage.GetPrimAtPath(prim_path)
     # Apply semantic tags
@@ -286,7 +296,7 @@ def _spawn_from_usd_file(
         cfg: The configuration instance.
         translation: The translation to apply to the prim w.r.t. its parent prim. Defaults to None, in which
             case the translation specified in the generated USD file is used.
-        orientation: The orientation in (w, x, y, z) to apply to the prim w.r.t. its parent prim. Defaults to None,
+        orientation: The orientation in (x, y, z, w) to apply to the prim w.r.t. its parent prim. Defaults to None,
             in which case the orientation specified in the generated USD file is used.
         **kwargs: Additional keyword arguments, like ``clone_in_fabric``.
 
@@ -296,31 +306,38 @@ def _spawn_from_usd_file(
     Raises:
         FileNotFoundError: If the USD file does not exist at the given path.
     """
-    # check if usd path exists with periodic logging until timeout
-    if not check_usd_path_with_timeout(usd_path):
-        if "4.5" in usd_path:
-            usd_5_0_path = usd_path.replace("http", "https").replace("/4.5", "/5.0")
-            if not check_usd_path_with_timeout(usd_5_0_path):
-                raise FileNotFoundError(f"USD file not found at path at either: '{usd_path}' or '{usd_5_0_path}'.")
-            usd_path = usd_5_0_path
-        else:
-            raise FileNotFoundError(f"USD file not found at path at: '{usd_path}'.")
+    # In distributed training, serialize asset download and USD stage composition
+    # across ranks to prevent file I/O races. Concurrent mmap reads/writes on
+    # the same cached USD files cause segfaults in Sdf_CrateFile::_MmapStream::Read.
+    _world_size = int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
 
-    # Obtain current stage
-    stage = get_current_stage()
-    # spawn asset if it doesn't exist.
-    if not stage.GetPrimAtPath(prim_path).IsValid():
-        # add prim as reference to stage
-        create_prim(
-            prim_path,
-            usd_path=usd_path,
-            translation=translation,
-            orientation=orientation,
-            scale=cfg.scale,
-            stage=stage,
-        )
-    else:
-        logger.warning(f"A prim already exists at prim path: '{prim_path}'.")
+    file_status = check_file_path(usd_path)
+    if file_status == 0:
+        raise FileNotFoundError(f"USD file not found at path: '{usd_path}'.")
+
+    if _world_size > 1:
+        lock_path = os.path.join(tempfile.gettempdir(), "isaaclab_usd_spawn.lock")
+        lock_fd = open(lock_path, "w")  # noqa: SIM115
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    try:
+        if file_status == 2:
+            usd_path = retrieve_file_path(usd_path, force_download=False)
+        stage = get_current_stage()
+        if not stage.GetPrimAtPath(prim_path).IsValid():
+            create_prim(
+                prim_path,
+                usd_path=usd_path,
+                translation=translation,
+                orientation=orientation,
+                scale=cfg.scale,
+                stage=stage,
+            )
+        else:
+            logger.warning(f"A prim already exists at prim path: '{prim_path}'.")
+    finally:
+        if _world_size > 1:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
 
     # modify variants
     if hasattr(cfg, "variants") and cfg.variants is not None:
@@ -350,12 +367,25 @@ def _spawn_from_usd_file(
     if cfg.joint_drive_props is not None:
         schemas.modify_joint_drive_properties(prim_path, cfg.joint_drive_props)
 
-    # modify deformable body properties
+    # define deformable body properties, or modify if deformable body API is present (PhysX only)
     if cfg.deformable_props is not None:
-        schemas.modify_deformable_body_properties(prim_path, cfg.deformable_props)
+        prim = stage.GetPrimAtPath(prim_path)
+        deformable_type = "surface" if isinstance(cfg.physics_material, SurfaceDeformableBodyMaterialCfg) else "volume"
+        if "OmniPhysicsDeformableBodyAPI" in prim.GetAppliedSchemas():
+            schemas_physx.modify_deformable_body_properties(prim_path, cfg.deformable_props, stage)
+        else:
+            schemas_physx.define_deformable_body_properties(prim_path, cfg.deformable_props, stage, deformable_type)
+        if cfg.mass_props is not None:
+            raise ValueError(
+                """MassPropertiesCfg are not supported for deformable bodies
+                and should be set through DeformableBodyPropertiesCfg(mass=<value>)."""
+            )
 
     # apply visual material
     if cfg.visual_material is not None:
+        if not has_kit():
+            logger.warning("Skipping visual material application for '%s' in kitless mode.", prim_path)
+            return stage.GetPrimAtPath(prim_path)
         if not cfg.visual_material_path.startswith("/"):
             material_path = f"{prim_path}/{cfg.visual_material_path}"
         else:
@@ -364,6 +394,17 @@ def _spawn_from_usd_file(
         cfg.visual_material.func(material_path, cfg.visual_material)
         # apply material
         bind_visual_material(prim_path, material_path, stage=stage)
+
+    # apply physics material
+    if cfg.physics_material is not None:
+        if not cfg.physics_material_path.startswith("/"):
+            material_path = f"{prim_path}/{cfg.physics_material_path}"
+        else:
+            material_path = cfg.physics_material_path
+        # create material
+        cfg.physics_material.func(material_path, cfg.physics_material)
+        # apply material
+        bind_physics_material(prim_path, material_path, stage=stage)
 
     # return the prim
     return stage.GetPrimAtPath(prim_path)
@@ -389,7 +430,7 @@ def spawn_from_usd_with_compliant_contact_material(
         cfg: The configuration instance containing the USD file path and physics material settings.
         translation: The translation to apply to the prim w.r.t. its parent prim. Defaults to None, in which
             case the translation specified in the USD file is used.
-        orientation: The orientation in (w, x, y, z) to apply to the prim w.r.t. its parent prim. Defaults to None,
+        orientation: The orientation in (x, y, z, w) to apply to the prim w.r.t. its parent prim. Defaults to None,
             in which case the orientation specified in the USD file is used.
         **kwargs: Additional keyword arguments, like ``clone_in_fabric``.
 

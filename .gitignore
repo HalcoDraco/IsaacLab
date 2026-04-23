@@ -65,7 +65,7 @@ _build
 /datasets/
 
 # Tests
-tests/
+/tests/
 
 # Docker history
 .isaac-lab-docker-history
@@ -73,3 +73,18 @@ tests/
 # TacSL sensor
 **/tactile_record/*
 **/gelsight_r15_data/*
+
+# No benchmarks output
+/benchmarks/
+
+# Ruff cache
+**/.ruff_cache/
+
+# Dev-time files, generated stuff
+**/__*
+
+# Isaac Lab CI environments in native mode
+**/_isaaclab_install_ci_*
+
+# Superpowers (Claude Code plugin artifacts)
+docs/superpowers/

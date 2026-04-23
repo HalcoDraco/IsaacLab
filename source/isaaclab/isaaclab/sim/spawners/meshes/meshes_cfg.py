@@ -9,11 +9,12 @@ from collections.abc import Callable
 from dataclasses import MISSING
 from typing import Literal
 
-from isaaclab.sim.spawners import materials
-from isaaclab.sim.spawners.spawner_cfg import DeformableObjectSpawnerCfg, RigidObjectSpawnerCfg
-from isaaclab.utils import configclass
+# deformables only supported on PhysX backend
+from isaaclab_physx.sim.spawners.spawner_cfg import DeformableObjectSpawnerCfg
 
-from . import meshes
+from isaaclab.sim.spawners import materials
+from isaaclab.sim.spawners.spawner_cfg import RigidObjectSpawnerCfg
+from isaaclab.utils import configclass
 
 
 @configclass
@@ -74,7 +75,7 @@ class MeshSphereCfg(MeshCfg):
     See :meth:`spawn_mesh_sphere` for more information.
     """
 
-    func: Callable = meshes.spawn_mesh_sphere
+    func: Callable | str = "{DIR}.meshes:spawn_mesh_sphere"
 
     radius: float = MISSING
     """Radius of the sphere (in m)."""
@@ -87,7 +88,7 @@ class MeshCuboidCfg(MeshCfg):
     See :meth:`spawn_mesh_cuboid` for more information.
     """
 
-    func: Callable = meshes.spawn_mesh_cuboid
+    func: Callable | str = "{DIR}.meshes:spawn_mesh_cuboid"
 
     size: tuple[float, float, float] = MISSING
     """Size of the cuboid (in m)."""
@@ -100,7 +101,7 @@ class MeshCylinderCfg(MeshCfg):
     See :meth:`spawn_cylinder` for more information.
     """
 
-    func: Callable = meshes.spawn_mesh_cylinder
+    func: Callable | str = "{DIR}.meshes:spawn_mesh_cylinder"
 
     radius: float = MISSING
     """Radius of the cylinder (in m)."""
@@ -117,7 +118,7 @@ class MeshCapsuleCfg(MeshCfg):
     See :meth:`spawn_capsule` for more information.
     """
 
-    func: Callable = meshes.spawn_mesh_capsule
+    func: Callable | str = "{DIR}.meshes:spawn_mesh_capsule"
 
     radius: float = MISSING
     """Radius of the capsule (in m)."""
@@ -134,7 +135,7 @@ class MeshConeCfg(MeshCfg):
     See :meth:`spawn_cone` for more information.
     """
 
-    func: Callable = meshes.spawn_mesh_cone
+    func: Callable | str = "{DIR}.meshes:spawn_mesh_cone"
 
     radius: float = MISSING
     """Radius of the cone (in m)."""
@@ -142,3 +143,18 @@ class MeshConeCfg(MeshCfg):
     """Height of the v (in m)."""
     axis: Literal["X", "Y", "Z"] = "Z"
     """Axis of the cone. Defaults to "Z"."""
+
+
+@configclass
+class MeshSquareCfg(MeshCfg):
+    """Configuration parameters for a 2D square mesh prim.
+
+    See :meth:`spawn_mesh_square` for more information.
+    """
+
+    func: Callable | str = "{DIR}.meshes:spawn_mesh_square"
+
+    size: float = MISSING
+    """Edge length of the square (in m)."""
+    resolution: tuple[int, int] = (5, 5)
+    """Resolution of the square (in elements/edges per side)."""

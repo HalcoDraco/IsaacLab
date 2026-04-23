@@ -27,6 +27,7 @@ from collections.abc import Generator
 
 import gymnasium as gym
 import torch
+import warp as wp
 
 import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation, RigidObject
@@ -84,7 +85,7 @@ def _execute_gripper_action(
         _env_step_with_action(env, action)
 
 
-DOWN_FACING_QUAT = torch.tensor([0.0, 1.0, 0.0, 0.0], dtype=torch.float32)
+DOWN_FACING_QUAT = torch.tensor([1.0, 0.0, 0.0, 0.0], dtype=torch.float32)
 
 
 @pytest.fixture(scope="class")
@@ -164,7 +165,7 @@ class TestCubeStackPlanner:
     def _get_cube_pos(self, cube_name: str) -> torch.Tensor:
         """Return the current world position of a cube's root (x, y, z)."""
         obj: RigidObject = self.env.scene[cube_name]
-        return obj.data.root_pos_w[0, :3].clone().detach()
+        return wp.to_torch(obj.data.root_pos_w)[0, :3].clone().detach()
 
     def _place_pose_over_cube(self, cube_name: str, height_offset: float) -> torch.Tensor:
         """Compute a goal pose directly above the named cube using the latest pose."""

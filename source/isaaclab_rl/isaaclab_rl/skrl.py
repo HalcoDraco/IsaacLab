@@ -27,9 +27,14 @@ Or, equivalently, by directly calling the skrl library API as follows:
 # needed to import for type hinting: Agent | list[Agent]
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from isaaclab.envs import DirectMARLEnv, DirectRLEnv, ManagerBasedRLEnv
+if TYPE_CHECKING:
+    from isaaclab.envs import (
+        DirectMARLEnv,
+        DirectRLEnv,
+        ManagerBasedRLEnv,
+    )
 
 """
 Vectorized environment wrapper.
@@ -62,14 +67,25 @@ def SkrlVecEnvWrapper(
         https://skrl.readthedocs.io/en/latest/api/envs/wrapping.html
     """
     # check that input is valid
-    if (
-        not isinstance(env.unwrapped, ManagerBasedRLEnv)
-        and not isinstance(env.unwrapped, DirectRLEnv)
-        and not isinstance(env.unwrapped, DirectMARLEnv)
-    ):
+    # NOTE: import here (not at module level) to avoid loading heavy env classes before Isaac Sim is initialized.
+    from isaaclab.envs import DirectMARLEnv, DirectRLEnv, ManagerBasedRLEnv
+
+    try:
+        from isaaclab_experimental.envs import DirectRLEnvWarp, ManagerBasedRLEnvWarp
+    except ImportError:
+        DirectRLEnvWarp = None
+        ManagerBasedRLEnvWarp = None
+
+    allowed_types = (ManagerBasedRLEnv, DirectRLEnv, DirectMARLEnv)
+    if DirectRLEnvWarp is not None:
+        allowed_types += (DirectRLEnvWarp,)
+    if ManagerBasedRLEnvWarp is not None:
+        allowed_types += (ManagerBasedRLEnvWarp,)
+
+    if not isinstance(env.unwrapped, allowed_types):
         raise ValueError(
-            "The environment must be inherited from ManagerBasedRLEnv, DirectRLEnv or DirectMARLEnv. Environment type:"
-            f" {type(env)}"
+            "The environment must be inherited from ManagerBasedRLEnv, DirectRLEnv, DirectMARLEnv,"
+            f" DirectRLEnvWarp or ManagerBasedRLEnvWarp. Environment type: {type(env)}"
         )
 
     # import statements according to the ML framework

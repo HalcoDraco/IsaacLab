@@ -3,14 +3,21 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from dataclasses import MISSING
-from typing import Literal
+from __future__ import annotations
 
+from dataclasses import MISSING, field
+from typing import TYPE_CHECKING, Literal
+
+from isaaclab_physx.renderers import IsaacRtxRendererCfg
+
+from isaaclab.renderers import RendererCfg
 from isaaclab.sim import FisheyeCameraCfg, PinholeCameraCfg
 from isaaclab.utils import configclass
 
 from ..sensor_base_cfg import SensorBaseCfg
-from .camera import Camera
+
+if TYPE_CHECKING:
+    from .camera import Camera
 
 
 @configclass
@@ -24,8 +31,8 @@ class CameraCfg(SensorBaseCfg):
         pos: tuple[float, float, float] = (0.0, 0.0, 0.0)
         """Translation w.r.t. the parent frame. Defaults to (0.0, 0.0, 0.0)."""
 
-        rot: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
-        """Quaternion rotation (w, x, y, z) w.r.t. the parent frame. Defaults to (1.0, 0.0, 0.0, 0.0)."""
+        rot: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+        """Quaternion rotation (x, y, z, w) w.r.t. the parent frame. Defaults to (0.0, 0.0, 0.0, 1.0)."""
 
         convention: Literal["opengl", "ros", "world"] = "ros"
         """The convention in which the frame offset is applied. Defaults to "ros".
@@ -37,12 +44,12 @@ class CameraCfg(SensorBaseCfg):
 
         """
 
-    class_type: type = Camera
+    class_type: type[Camera] | str = "{DIR}.camera:Camera"
 
     offset: OffsetCfg = OffsetCfg()
     """The offset pose of the sensor's frame from the sensor's parent frame. Defaults to identity.
 
-    Note:
+    .. note::
         The parent frame is the frame the sensor attaches to. For example, the parent frame of a
         camera at path ``/World/envs/env_0/Robot/Camera`` is ``/World/envs/env_0/Robot``.
     """
@@ -78,7 +85,7 @@ class CameraCfg(SensorBaseCfg):
     """Whether to update the latest camera pose when fetching the camera's data. Defaults to False.
 
     If True, the latest camera pose is updated in the camera's data which will slow down performance
-    due to the use of :class:`XformPrimView`.
+    due to the use of :class:`FrameView`.
     If False, the pose of the camera during initialization is returned.
     """
 
@@ -141,3 +148,6 @@ class CameraCfg(SensorBaseCfg):
         }
 
     """
+
+    renderer_cfg: RendererCfg = field(default_factory=IsaacRtxRendererCfg)
+    """Renderer configuration for camera sensor."""

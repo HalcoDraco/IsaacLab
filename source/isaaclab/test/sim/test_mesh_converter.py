@@ -19,7 +19,6 @@ import tempfile
 
 import pytest
 
-import omni
 from pxr import UsdGeom, UsdPhysics
 
 import isaaclab.sim as sim_utils
@@ -30,13 +29,13 @@ from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR, retrieve_file_path
 
 
 def random_quaternion():
-    # Generate four random numbers for the quaternion
+    # Generate four random numbers for the quaternion (x, y, z, w format)
     u1, u2, u3 = random.random(), random.random(), random.random()
     w = math.sqrt(1 - u1) * math.sin(2 * math.pi * u2)
     x = math.sqrt(1 - u1) * math.cos(2 * math.pi * u2)
     y = math.sqrt(u1) * math.sin(2 * math.pi * u3)
     z = math.sqrt(u1) * math.cos(2 * math.pi * u3)
-    return (w, x, y, z)
+    return (x, y, z, w)
 
 
 @pytest.fixture(scope="session")
@@ -71,8 +70,6 @@ def sim():
     # stop simulation
     sim.stop()
     # cleanup stage and context
-    sim.clear()
-    sim.clear_all_callbacks()
     sim.clear_instance()
 
 
@@ -92,7 +89,7 @@ def check_mesh_conversion(mesh_converter: MeshConverter):
     # Check prim can be properly spawned
     assert stage.GetPrimAtPath(prim_path).IsValid()
 
-    stage = omni.usd.get_context().get_stage()
+    stage = sim_utils.get_current_stage()
     # Check axis is z-up
     axis = UsdGeom.GetStageUpAxis(stage)
     assert axis == "Z"
@@ -106,7 +103,7 @@ def check_mesh_conversion(mesh_converter: MeshConverter):
     pos = tuple(prim.GetAttribute("xformOp:translate").Get())
     assert pos == mesh_converter.cfg.translation
     quat = prim.GetAttribute("xformOp:orient").Get()
-    quat = (quat.GetReal(), quat.GetImaginary()[0], quat.GetImaginary()[1], quat.GetImaginary()[2])
+    quat = (quat.GetImaginary()[0], quat.GetImaginary()[1], quat.GetImaginary()[2], quat.GetReal())
     assert quat == mesh_converter.cfg.rotation
     scale = tuple(prim.GetAttribute("xformOp:scale").Get())
     assert scale == mesh_converter.cfg.scale

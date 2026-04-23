@@ -24,12 +24,22 @@ sys.path.insert(0, os.path.abspath("../source/isaaclab_assets"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_assets/isaaclab_assets"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_tasks"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_tasks/isaaclab_tasks"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_physx"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_physx/isaaclab_physx"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_newton"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_newton/isaaclab_newton"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_rl"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_rl/isaaclab_rl"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_mimic"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_mimic/isaaclab_mimic"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_contrib"))
 sys.path.insert(0, os.path.abspath("../source/isaaclab_contrib/isaaclab_contrib"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_teleop"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_teleop/isaaclab_teleop"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_ov"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_ov/isaaclab_ov"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_visualizers"))
+sys.path.insert(0, os.path.abspath("../source/isaaclab_visualizers/isaaclab_visualizers"))
 
 # -- Project information -----------------------------------------------------
 
@@ -127,7 +137,7 @@ intersphinx_mapping = {
     "numpy": ("https://numpy.org/doc/stable/", None),
     "trimesh": ("https://trimesh.org/", None),
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
-    "isaacsim": ("https://docs.isaacsim.omniverse.nvidia.com/5.1.0/py/", None),
+    "isaacsim": ("https://docs.isaacsim.omniverse.nvidia.com/6.0.0/py/", None),
     "gymnasium": ("https://gymnasium.farama.org/", None),
     "warp": ("https://nvidia.github.io/warp/", None),
     "omniverse": ("https://docs.omniverse.nvidia.com/dev-guide/latest", None),
@@ -139,7 +149,7 @@ templates_path = []
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ["_build", "_redirect", "_templates", "Thumbs.db", ".DS_Store", "README.md", "licenses/*"]
+exclude_patterns = ["_build", "_redirect", "_templates", "Thumbs.db", ".DS_Store", "README.md", "licenses/*", "plans"]
 
 # Mock out modules that are not available on RTD
 autodoc_mock_imports = [
@@ -176,6 +186,7 @@ autodoc_mock_imports = [
     "omni.timeline",
     "omni.ui",
     "gym",
+    "gymnasium",
     "skrl",
     "stable_baselines3",
     "rsl_rl",
@@ -197,6 +208,12 @@ autodoc_mock_imports = [
     "imageio",
     "ipywidgets",
     "mpl_toolkits",
+    "isaacteleop",
+    "scipy",
+    "hydra",
+    "hydra.core",
+    "hydra.core.config_store",
+    "omegaconf",
 ]
 
 # List of zero or more Sphinx-specific warning categories to be squelched (i.e.,
@@ -267,7 +284,7 @@ html_theme_options = {
         {
             "name": "Isaac Sim",
             "url": "https://developer.nvidia.com/isaac-sim",
-            "icon": "https://img.shields.io/badge/IsaacSim-5.1.0-silver.svg",
+            "icon": "https://img.shields.io/badge/IsaacSim-6.0.0-silver.svg",
             "type": "url",
         },
         {
@@ -287,9 +304,11 @@ templates_path = [
 # Whitelist pattern for remotes
 smv_remote_whitelist = r"^.*$"
 # Whitelist pattern for branches (set to None to ignore all branches)
-smv_branch_whitelist = os.getenv("SMV_BRANCH_WHITELIST", r"^(main|devel|release/.*)$")
-# Whitelist pattern for tags (set to None to ignore all tags)
-smv_tag_whitelist = os.getenv("SMV_TAG_WHITELIST", r"^v[1-9]\d*\.\d+\.\d+$")
+smv_branch_whitelist = os.getenv("SMV_BRANCH_WHITELIST", r"^(main|develop|release/.*)$")
+# Whitelist pattern for tags (set to None to ignore all tags).
+# Matches vMAJOR.MINOR.PATCH with an optional pre-release suffix like -beta or -rc1,
+# so tags like v3.0.0-beta show up in the version selector.
+smv_tag_whitelist = os.getenv("SMV_TAG_WHITELIST", r"^v[1-9]\d*\.\d+\.\d+(-[A-Za-z0-9.]+)?$")
 html_sidebars = {
     "**": ["navbar-logo.html", "versioning.html", "icon-links.html", "search-field.html", "sbt-sidebar-nav.html"]
 }

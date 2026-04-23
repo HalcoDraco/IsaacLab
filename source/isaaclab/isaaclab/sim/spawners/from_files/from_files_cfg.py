@@ -8,13 +8,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import MISSING
 
+# deformables only supported on PhysX backend
+from isaaclab_physx.sim.spawners.spawner_cfg import DeformableObjectSpawnerCfg
+
 from isaaclab.sim import converters, schemas
 from isaaclab.sim.spawners import materials
-from isaaclab.sim.spawners.spawner_cfg import DeformableObjectSpawnerCfg, RigidObjectSpawnerCfg, SpawnerCfg
+from isaaclab.sim.spawners.spawner_cfg import RigidObjectSpawnerCfg, SpawnerCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-
-from . import from_files
 
 
 @configclass
@@ -69,6 +70,20 @@ class FileCfg(RigidObjectSpawnerCfg, DeformableObjectSpawnerCfg):
         If None, then no visual material will be added.
     """
 
+    physics_material_path: str = "material"
+    """Path to the physics material to use for the prim. Defaults to "material".
+
+    If the path is relative, then it will be relative to the prim's path.
+    This parameter is ignored if `physics_material` is not None.
+    """
+
+    physics_material: materials.PhysicsMaterialCfg | None = None
+    """Physics material properties.
+
+    Note:
+        If None, then no custom physics material will be added.
+    """
+
 
 @configclass
 class UsdFileCfg(FileCfg):
@@ -96,7 +111,7 @@ class UsdFileCfg(FileCfg):
         This is done by calling the respective function with the specified properties.
     """
 
-    func: Callable = from_files.spawn_from_usd
+    func: Callable | str = "{DIR}.from_files:spawn_from_usd"
 
     usd_path: str = MISSING
     """Path to the USD file to spawn asset from."""
@@ -129,7 +144,7 @@ class UrdfFileCfg(FileCfg, converters.UrdfConverterCfg):
 
     """
 
-    func: Callable = from_files.spawn_from_urdf
+    func: Callable | str = "{DIR}.from_files:spawn_from_urdf"
 
 
 @configclass
@@ -151,7 +166,7 @@ class MjcfFileCfg(FileCfg, converters.MjcfConverterCfg):
 
     """
 
-    func: Callable = from_files.spawn_from_mjcf
+    func: Callable | str = "{DIR}.from_files:spawn_from_mjcf"
 
 
 """
@@ -169,7 +184,7 @@ class UsdFileWithCompliantContactCfg(UsdFileCfg):
     material application.
     """
 
-    func: Callable = from_files.spawn_from_usd_with_compliant_contact_material
+    func: Callable | str = "{DIR}.from_files:spawn_from_usd_with_compliant_contact_material"
 
     compliant_contact_stiffness: float | None = None
     """Stiffness of the compliant contact. Defaults to None.
@@ -201,7 +216,7 @@ class GroundPlaneCfg(SpawnerCfg):
     This uses the USD for the standard grid-world ground plane from Isaac Sim by default.
     """
 
-    func: Callable = from_files.spawn_ground_plane
+    func: Callable | str = "{DIR}.from_files:spawn_ground_plane"
 
     usd_path: str = f"{ISAAC_NUCLEUS_DIR}/Environments/Grid/default_environment.usd"
     """Path to the USD file to spawn asset from. Defaults to the grid-world ground plane."""

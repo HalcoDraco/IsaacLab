@@ -3,13 +3,13 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+from __future__ import annotations
+
 from dataclasses import MISSING
 from typing import Literal
 
 from isaaclab.sim import SpawnerCfg
 from isaaclab.utils import configclass
-
-from .asset_base import AssetBase
 
 
 @configclass
@@ -34,12 +34,12 @@ class AssetBaseCfg:
         # root position
         pos: tuple[float, float, float] = (0.0, 0.0, 0.0)
         """Position of the root in simulation world frame. Defaults to (0.0, 0.0, 0.0)."""
-        rot: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
-        """Quaternion rotation (w, x, y, z) of the root in simulation world frame.
-        Defaults to (1.0, 0.0, 0.0, 0.0).
+        rot: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+        """Quaternion rotation (x, y, z, w) of the root in simulation world frame.
+        Defaults to (0.0, 0.0, 0.0, 1.0).
         """
 
-    class_type: type[AssetBase] = None
+    class_type: type | str | None = None
     """The associated asset class. Defaults to None, which means that the asset will be spawned
     but cannot be interacted with via the asset class.
 

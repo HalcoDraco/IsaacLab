@@ -49,7 +49,7 @@ KUKA_ALLEGRO_CFG = ArticulationCfg(
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.0),
-        rot=(1.0, 0.0, 0.0, 0.0),
+        rot=(0.0, 0.0, 0.0, 1.0),
         joint_pos={
             "iiwa7_joint_(1|2|7)": 0.0,
             "iiwa7_joint_3": 0.7854,
@@ -107,6 +107,9 @@ KUKA_ALLEGRO_CFG = ArticulationCfg(
                 "middle_joint_(0|1|2|3)": 0.01,
                 "ring_joint_(0|1|2|3)": 0.01,
                 "thumb_joint_(0|1|2|3)": 0.01,
+            },
+            armature={
+                ".*": 0.01,
             },
         ),
     },

@@ -196,7 +196,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
     camera_index = args_cli.camera_id
 
     # Create the markers for the --draw option outside of is_running() loop
-    if sim.has_gui() and args_cli.draw:
+    if sim.get_setting("/isaaclab/has_gui") and args_cli.draw:
         cfg = RAY_CASTER_MARKER_CFG.replace(prim_path="/Visuals/CameraPointCloud")
         cfg.markers["hit"].radius = 0.002
         pc_markers = VisualizationMarkers(cfg)
@@ -232,12 +232,10 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
                 {k: v[camera_index] for k, v in camera.data.output.items()}, backend="numpy"
             )
 
-            # Extract the other information
-            single_cam_info = camera.data.info[camera_index]
-
             # Pack data back into replicator format to save them using its writer
             rep_output = {"annotators": {}}
-            for key, data, info in zip(single_cam_data.keys(), single_cam_data.values(), single_cam_info.values()):
+            for key, data in single_cam_data.items():
+                info = camera.data.info.get(key)
                 if info is not None:
                     rep_output["annotators"][key] = {"render_product": {"data": data, **info}}
                 else:
@@ -248,7 +246,11 @@ def run_simulator(sim: sim_utils.SimulationContext, scene_entities: dict):
             rep_writer.write(rep_output)
 
         # Draw pointcloud if there is a GUI and --draw has been passed
-        if sim.has_gui() and args_cli.draw and "distance_to_image_plane" in camera.data.output.keys():
+        if (
+            sim.get_setting("/isaaclab/has_gui")
+            and args_cli.draw
+            and "distance_to_image_plane" in camera.data.output.keys()
+        ):
             # Derive pointcloud from camera at camera_index
             pointcloud = create_pointcloud_from_depth(
                 intrinsic_matrix=camera.data.intrinsic_matrices[camera_index],

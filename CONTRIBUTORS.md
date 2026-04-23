@@ -19,52 +19,63 @@ Guidelines for modifications:
 
 ---
 
+* Antoine Richard
 * Antonio Serrano-Muñoz
 * Ben Johnston
 * Brian McCann
 * Clemens Schwarke
 * David Hoeller
 * Farbod Farshidian
+* Gavriel State
+* Greg Attra
 * Hunter Hansen
 * James Smith
 * James Tigue
 * Kelly (Yunrong) Guo
 * Matthew Trepte
 * Mayank Mittal
+* Mike Yan Michelis
+* Mikhail Yurasov
 * Nikita Rudin
 * Octi (Zhengyu) Zhang
+* Ossama Ahmed
 * Pascal Roth
 * Sheikh Dawood
-* Ossama Ahmed
-* Greg Attra
 
 ## Contributors
 
 * Alessandro Assirelli
 * Alex Omar
+* Alexander Millane
 * Alice Zhou
 * Amr Mousa
 * Andrej Orsula
+* Anke Zhao
 * Anton Bjørndahl Mortensen
 * Antonin Raffin
 * Arjun Bhardwaj
 * Ashwin Varghese Kuruttukulam
 * Bikram Pandit
 * Bingjie Tang
+* Bocheng Zou
 * Brayden Zhang
 * Brian Bingham
 * Brian McCann
-* Cameron Upright
+* Caelan Garrett
 * Calvin Yu
+* Cameron Upright
 * Cathy Y. Li
 * Cheng-Rong Lai
 * Chenyu Yang
 * Connor Smith
 * CY (Chien-Ying) Chen
+* David Leon
 * David Yang
 * Dhananjay Shendre
+* Dhyan Thakkar
 * Dongxuan Fan
 * Dorsa Rohani
+* Ege Sekkin
 * Emily Sturman
 * Emmanuel Ferdman
 * Fabian Jenelten
@@ -79,14 +90,18 @@ Guidelines for modifications:
 * Hongwei Xiong
 * Hongyu Li
 * Hougant Chen
+* HuiDong Chen
 * Huihua Zhao
 * Iretiayo Akinola
 * Jack Zeng
 * Jan Kerner
 * Jean Tampon
 * Jeonghwan Kim
+* Jessica Martinez
+* Ji Yuan Feng
 * Jia Lin Yuan
 * Jiakai Zhang
+* Jichuan Hu
 * Jinghuan Shang
 * Jingzhou Liu
 * Jinqi Wei
@@ -94,22 +109,22 @@ Guidelines for modifications:
 * Johnson Sun
 * Juana Du
 * Kaixi Bao
-* Kris Wilson
-* Krishna Lakhi
 * Kourosh Darvish
 * Kousheek Chakraborty
+* Kris Wilson
+* Krishna Lakhi
 * Lionel Gulich
+* Lorenz Wellhausen
 * Lotus Li
 * Louis Le Lay
-* Lorenz Wellhausen
 * Lukas Fröhlich
 * Manuel Schweiger
 * Masoud Moghani
 * Mateo Guaman Castro
 * Maurice Rahme
 * Michael Gussert
-* Michael Noseworthy
 * Michael Lin
+* Michael Noseworthy
 * Miguel Alonso Jr
 * Mihir Kulkarni
 * Mingxue Gu
@@ -125,8 +140,10 @@ Guidelines for modifications:
 * Oyindamola Omotuyi
 * Özhan Özen
 * Patrick Yin
+* Paul Reeves
 * Peter Du
 * Philipp Reist
+* Piotr Barejko
 * Pulkit Goyal
 * Qian Wan
 * Qingyang Jiang
@@ -134,8 +151,10 @@ Guidelines for modifications:
 * Rafael Wiltz
 * Renaud Poncelet
 * René Zurbrügg
+* RinZ27
 * Ritvik Singh
 * Rosario Scalise
+* Ruben D'Sa
 * Ryan Gresia
 * Ryley McCarroll
 * Sahara Yuta
@@ -144,17 +163,20 @@ Guidelines for modifications:
 * Shane Reetz
 * Shaoshu Su
 * Shaurya Dewan
-* Sixiang Chen
 * Shundo Kishi
+* Sixiang Chen
+* Song Yi
 * Stefan Van de Mosselaer
 * Stephan Pleines
 * Tiffany Chen
 * Trushant Adeshara
+* Tsz Ki GAO
 * Tyler Lum
 * Victor Khaustov
 * Virgilio Gómez Lambo
 * Vladimir Fokow
 * Wei Yang
+* Weihua Zhang
 * Welf Rehberg
 * Xavier Nal
 * Xiaodi Yuan
@@ -166,22 +188,17 @@ Guidelines for modifications:
 * Yohan Choi
 * Yujian Zhang
 * Yun Liu
+* YuTeh Shen
 * Zehao Wang
 * Zijian Li
 * Ziqi Fan
 * Zoe McCarthy
-* David Leon
-* Song Yi
-* Weihua Zhang
-* Tsz Ki GAO
-* Anke Zhao
 
 ## Acknowledgements
 
 * Ajay Mandlekar
 * Animesh Garg
 * Buck Babich
-* Gavriel State
 * Hammad Mazhar
 * Marco Hutter
 * Yan Chang

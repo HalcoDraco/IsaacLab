@@ -63,7 +63,7 @@ from isaaclab.utils.timer import Timer
 def design_scene(sim: SimulationContext, num_envs: int = 2048):
     """Design the scene."""
     # Create interface to clone the scene
-    cloner = GridCloner(spacing=10.0)
+    cloner = GridCloner(spacing=10.0, stage=sim.stage)
     cloner.define_base_env("/World/envs")
     # Everything under the namespace "/World/envs/env_0" will be cloned
     sim.stage.DefinePrim("/World/envs/env_0", "Xform")
@@ -142,7 +142,7 @@ def main():
         prim_path="/World/envs/env_.*/ball",
         mesh_prim_paths=mesh_targets,
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=(1.6, 1.0)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         debug_vis=not args_cli.headless,
     )
     ray_caster = MultiMeshRayCaster(cfg=ray_caster_cfg)

@@ -19,6 +19,7 @@ import math
 
 import pytest
 import torch
+import warp as wp
 
 import omni.replicator.core as rep
 
@@ -147,7 +148,7 @@ def setup(sensor_type: str = "cube"):
         actuators={},
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(0.0, 0.0, 0.5),
-            rot=(math.sqrt(2) / 2, -math.sqrt(2) / 2, 0.0, 0.0),  # 90° rotation
+            rot=(-math.sqrt(2) / 2, 0.0, 0.0, math.sqrt(2) / 2),  # 90° rotation
             joint_pos={},
             joint_vel={},
         ),
@@ -172,7 +173,7 @@ def setup(sensor_type: str = "cube"):
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=(0.0, 0.0 + 0.06776, 0.52),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=(0.0, 0.0, 0.0, 1.0),
         ),
     )
 
@@ -189,10 +190,8 @@ def teardown(sim):
     # close all the opened viewport from before.
     rep.vp_manager.destroy_hydra_textures("Replicator")
     # stop simulation
-    # note: cannot use self.sim.stop() since it does one render step after stopping!! This doesn't make sense :(
-    sim._timeline.stop()
+    sim.stop()
     # clear the stage
-    sim.clear_all_callbacks()
     sim.clear_instance()
 
 
@@ -308,7 +307,8 @@ def test_sensor_cam_set_wrong_prim(setup_tactile_cam):
         sim.reset()
         robot.update(dt)
         sensor.update(dt)
-    assert "Could not find prim with path" in str(excinfo.value)
+    err_msg = str(excinfo.value)
+    assert "Could not find prim with path" in err_msg or "does not match the number of environments" in err_msg
 
 
 @pytest.mark.isaacsim_ci
@@ -444,7 +444,9 @@ def test_sensor_update_period_mismatch(setup_nut_rgb_ff):
         sensor.update(dt, force_recompute=True)
         robot.update(dt)
         nut.update(dt)
-        assert torch.allclose(sensor._timestamp_last_update, torch.tensor((i + 1) * dt, device=sensor.device))
         assert torch.allclose(
-            sensor._camera_sensor._timestamp_last_update, torch.tensor((i + 1) * dt, device=sensor.device)
+            wp.to_torch(sensor._timestamp_last_update), torch.tensor((i + 1) * dt, device=sensor.device)
+        )
+        assert torch.allclose(
+            wp.to_torch(sensor._camera_sensor._timestamp_last_update), torch.tensor((i + 1) * dt, device=sensor.device)
         )

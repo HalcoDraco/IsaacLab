@@ -12,8 +12,6 @@ import isaaclab.utils.sensors as sensor_utils
 from isaaclab.sim.spawners.spawner_cfg import SpawnerCfg
 from isaaclab.utils import configclass
 
-from . import sensors
-
 
 @configclass
 class PinholeCameraCfg(SpawnerCfg):
@@ -26,7 +24,7 @@ class PinholeCameraCfg(SpawnerCfg):
         world unit is Meter s.t. all of these values are set in cm.
     """
 
-    func: Callable = sensors.spawn_camera
+    func: Callable | str = "{DIR}.sensors:spawn_camera"
 
     projection_type: str = "pinhole"
     """Type of projection to use for the camera. Defaults to "pinhole".
@@ -172,7 +170,7 @@ class FisheyeCameraCfg(PinholeCameraCfg):
     .. _fish-eye camera: https://en.wikipedia.org/wiki/Fisheye_lens
     """
 
-    func: Callable = sensors.spawn_camera
+    func: Callable | str = "{DIR}.sensors:spawn_camera"
 
     projection_type: Literal[
         "fisheyePolynomial",
@@ -224,3 +222,15 @@ class FisheyeCameraCfg(PinholeCameraCfg):
 
     fisheye_polynomial_f: float = 0.0
     """Sixth component of fisheye polynomial. Defaults to 0.0."""
+
+
+@configclass
+class SensorFrameCfg(SpawnerCfg):
+    """Spawns a plain USD Xform as a sensor attachment frame.
+
+    The spawned prim carries no rigid body or collision API. It serves as a
+    non-physics child under a link so that :class:`~isaaclab.sim.views.FrameView`
+    can track it on all backends (including Newton, which rejects physics body prims).
+    """
+
+    func: Callable | str = "{DIR}.sensors:spawn_sensor_frame"

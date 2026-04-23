@@ -3,13 +3,28 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+import warnings
 from dataclasses import MISSING
 
-from isaaclab.sim.spawners.from_files import UsdFileCfg
-from isaaclab.sim.spawners.spawner_cfg import DeformableObjectSpawnerCfg, RigidObjectSpawnerCfg, SpawnerCfg
-from isaaclab.utils import configclass
+# deformables only supported in PhysX backend
+try:
+    from isaaclab_physx.sim.spawners.spawner_cfg import DeformableObjectSpawnerCfg
+except ImportError as e:
+    warnings.warn(
+        f"""Could not import DeformableObjectSpawnerCfg, is isaaclab_physx installed?
+        Safe to ignore if using newton only. Complete exception: {e}"""
+    )
+    # import dummy class to avoid errors in type hints
+    from isaaclab.utils import configclass
 
-from . import wrappers
+    @configclass
+    class DeformableObjectSpawnerCfg:
+        deformable_props = None
+
+
+from isaaclab.sim.spawners.from_files import UsdFileCfg
+from isaaclab.sim.spawners.spawner_cfg import RigidObjectSpawnerCfg, SpawnerCfg
+from isaaclab.utils import configclass
 
 
 @configclass
@@ -29,16 +44,19 @@ class MultiAssetSpawnerCfg(RigidObjectSpawnerCfg, DeformableObjectSpawnerCfg):
 
     """
 
-    func = wrappers.spawn_multi_asset
+    func: str = "{DIR}.wrappers:spawn_multi_asset"
 
     assets_cfg: list[SpawnerCfg] = MISSING
     """List of asset configurations to spawn."""
 
     random_choice: bool = True
-    """Whether to randomly select an asset configuration. Default is True.
+    """ This parameter is ignored.
+    See :attr:`isaaclab.scene.interactive_scene_cfg.InteractiveSceneCfg.random_heterogeneous_cloning` for details.
 
-    If False, the asset configurations are spawned in the order they are provided in the list.
-    If True, a random asset configuration is selected for each spawn.
+    .. warning::
+
+        This attribute is deprecated. Use
+        :attr:`~isaaclab.scene.interactive_scene_cfg.InteractiveSceneCfg.random_heterogeneous_cloning` instead.
     """
 
 
@@ -54,7 +72,7 @@ class MultiUsdFileCfg(UsdFileCfg):
 
     """
 
-    func = wrappers.spawn_multi_usd_file
+    func: str = "{DIR}.wrappers:spawn_multi_usd_file"
 
     usd_path: str | list[str] = MISSING
     """Path or a list of paths to the USD files to spawn asset from."""
@@ -64,4 +82,9 @@ class MultiUsdFileCfg(UsdFileCfg):
 
     If False, the asset configurations are spawned in the order they are provided in the list.
     If True, a random asset configuration is selected for each spawn.
+
+    .. warning::
+
+        This attribute is deprecated. Use
+        :attr:`~isaaclab.scene.interactive_scene_cfg.InteractiveSceneCfg.random_heterogeneous_cloning` instead.
     """

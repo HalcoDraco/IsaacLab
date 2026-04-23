@@ -69,7 +69,7 @@ Configuring the simulation context
 
 When launching the simulator from a standalone script, the user has complete control over playing,
 pausing and stepping the simulator. All these operations are handled through the **simulation
-context**. It takes care of various timeline events and also configures the `physics scene`_ for
+context**. It takes care of various timeline events and also configures the physics scene for
 simulation.
 
 In Isaac Lab, the :class:`sim.SimulationContext` class inherits from Isaac Sim's
@@ -139,7 +139,7 @@ Now that we have gone through the code, let's run the script and see the result:
 
 .. code-block:: bash
 
-   ./isaaclab.sh -p scripts/tutorials/00_sim/create_empty.py
+   ./isaaclab.sh -p scripts/tutorials/00_sim/create_empty.py --viz kit
 
 
 The simulation should be playing, and the stage should be rendering. To stop the simulation,
@@ -156,7 +156,7 @@ following:
 
 .. code-block:: bash
 
-   ./isaaclab.sh -p scripts/tutorials/00_sim/create_empty.py --headless
+   ./isaaclab.sh -p scripts/tutorials/00_sim/create_empty.py --viz none
 
 
 Now that we have a basic understanding of how to run a simulation, let's move on to the
@@ -164,4 +164,3 @@ following tutorial where we will learn how to add assets to the stage.
 
 .. _`Isaac Sim Workflows`: https://docs.isaacsim.omniverse.nvidia.com/latest/introduction/workflows.html
 .. _carb: https://docs.omniverse.nvidia.com/kit/docs/carbonite/latest/index.html
-.. _`physics scene`: https://docs.omniverse.nvidia.com/prod_extensions/prod_extensions/ext_physics.html#physics-scene

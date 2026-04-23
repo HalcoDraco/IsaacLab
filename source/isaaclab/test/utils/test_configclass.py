@@ -26,9 +26,10 @@ from typing import Any, ClassVar
 import pytest
 import torch
 
-from isaaclab.utils.configclass import configclass
+from isaaclab.utils.configclass import _field_module_dir, configclass
 from isaaclab.utils.dict import class_to_dict, dict_to_md5_hash, update_class_from_dict
 from isaaclab.utils.io import dump_yaml, load_yaml
+from isaaclab.utils.string import ResolvableString
 
 """
 Mock classes and functions.
@@ -107,7 +108,7 @@ class EnvCfg:
 @configclass
 class RobotDefaultStateCfg:
     pos = (0.0, 0.0, 0.0)  # type annotation missing on purpose (immutable)
-    rot: tuple = (1.0, 0.0, 0.0, 0.0)
+    rot: tuple = (0.0, 0.0, 0.0, 1.0)  # xyzw format
     dof_pos: tuple = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     dof_vel = [0.0, 0.0, 0.0, 0.0, 0.0, 1.0]  # type annotation missing on purpose (mutable)
 
@@ -217,7 +218,7 @@ class ChildADemoCfg(ParentDemoCfg):
 
     def __post_init__(self):
         self.b = 3  # change value of existing field
-        self.m.rot = (2.0, 0.0, 0.0, 0.0)  # change value of default
+        self.m.rot = (0.0, 0.0, 0.0, 2.0)  # change value of default (xyzw format)
         self.i = ["a", "b"]  # change value of existing field
 
 
@@ -401,7 +402,7 @@ basic_demo_cfg_correct = {
     "env": {"num_envs": 56, "episode_length": 2000, "viewer": {"eye": [7.5, 7.5, 7.5], "lookat": [0.0, 0.0, 0.0]}},
     "robot_default_state": {
         "pos": (0.0, 0.0, 0.0),
-        "rot": (1.0, 0.0, 0.0, 0.0),
+        "rot": (0.0, 0.0, 0.0, 1.0),
         "dof_pos": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         "dof_vel": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     },
@@ -413,7 +414,7 @@ basic_demo_cfg_change_correct = {
     "env": {"num_envs": 22, "episode_length": 2000, "viewer": {"eye": (2.0, 2.0, 2.0), "lookat": [0.0, 0.0, 0.0]}},
     "robot_default_state": {
         "pos": (0.0, 0.0, 0.0),
-        "rot": (1.0, 0.0, 0.0, 0.0),
+        "rot": (0.0, 0.0, 0.0, 1.0),
         "dof_pos": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         "dof_vel": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     },
@@ -425,7 +426,7 @@ basic_demo_cfg_change_with_none_correct = {
     "env": {"num_envs": 22, "episode_length": 2000, "viewer": None},
     "robot_default_state": {
         "pos": (0.0, 0.0, 0.0),
-        "rot": (1.0, 0.0, 0.0, 0.0),
+        "rot": (0.0, 0.0, 0.0, 1.0),
         "dof_pos": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         "dof_vel": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     },
@@ -437,7 +438,7 @@ basic_demo_cfg_change_with_tuple_correct = {
     "env": {"num_envs": 56, "episode_length": 2000, "viewer": {"eye": [7.5, 7.5, 7.5], "lookat": [0.0, 0.0, 0.0]}},
     "robot_default_state": {
         "pos": (0.0, 0.0, 0.0),
-        "rot": (1.0, 0.0, 0.0, 0.0),
+        "rot": (0.0, 0.0, 0.0, 1.0),
         "dof_pos": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         "dof_vel": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     },
@@ -447,7 +448,7 @@ basic_demo_cfg_change_with_tuple_correct = {
 
 basic_demo_cfg_nested_dict_and_list = {
     "dict_1": {
-        "dict_2": {"func": dummy_function2},
+        "dict_2": {"func": "test_configclass:dummy_function2"},
     },
     "list_1": [
         {"num_envs": 23, "episode_length": 3000, "viewer": {"eye": [5.0, 5.0, 5.0], "lookat": [0.0, 0.0, 0.0]}},
@@ -459,7 +460,7 @@ basic_demo_post_init_cfg_correct = {
     "env": {"num_envs": 56, "episode_length": 2000, "viewer": {"eye": [7.5, 7.5, 7.5], "lookat": [0.0, 0.0, 0.0]}},
     "robot_default_state": {
         "pos": (0.0, 0.0, 0.0),
-        "rot": (1.0, 0.0, 0.0, 0.0),
+        "rot": (0.0, 0.0, 0.0, 1.0),
         "dof_pos": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         "dof_vel": [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     },
@@ -641,6 +642,47 @@ def test_config_update_nested_dict():
     assert isinstance(cfg.list_1[1], EnvCfg)
     assert isinstance(cfg.list_1[0].viewer, ViewerCfg)
     assert isinstance(cfg.list_1[1].viewer, ViewerCfg)
+
+
+def test_wrap_resolvable_strings_handles_cyclic_containers():
+    """Cyclic container graphs in config values should not recurse forever."""
+
+    @configclass
+    class CyclicContainerCfg:
+        payload: dict[str, Any] = field(default_factory=dict)
+
+        def __post_init__(self):
+            cycle = {}
+            cycle["self"] = cycle
+            cycle["tuple"] = (cycle, {"back": cycle})
+            self.payload = cycle
+
+    cfg = CyclicContainerCfg()
+
+    assert cfg.payload["self"] is cfg.payload
+    assert cfg.payload["tuple"][0] is cfg.payload
+    assert cfg.payload["tuple"][1]["back"] is cfg.payload
+
+
+def test_dir_resolution_uses_declaring_class_for_inherited_field():
+    """{DIR} expansion should use the field declaring class, not subclass module."""
+
+    @configclass
+    class _BaseCfg:
+        class_type: type | str = "{DIR}.base_mod:BaseSymbol"
+
+    @configclass
+    class _ChildCfg(_BaseCfg):
+        pass
+
+    # Simulate subclass declared in a different package than the parent config.
+    _BaseCfg.__module__ = "test_pkg.parent.base_cfg"
+    _ChildCfg.__module__ = "other_pkg.child.child_cfg"
+
+    cfg = _ChildCfg()
+
+    assert isinstance(cfg.class_type, ResolvableString)
+    assert str(cfg.class_type) == "test_pkg.parent.base_mod:BaseSymbol"
 
 
 def test_config_update_different_iterable_lengths():
@@ -930,7 +972,7 @@ def test_config_inheritance():
     # check post init
     assert cfg_a.b == 3
     assert cfg_a.i == ["a", "b"]
-    assert cfg_a.m.rot == (2.0, 0.0, 0.0, 0.0)
+    assert cfg_a.m.rot == (0.0, 0.0, 0.0, 2.0)
 
 
 def test_config_inheritance_independence():
@@ -951,8 +993,8 @@ def test_config_inheritance_independence():
     assert cfg_b.b == 8
     assert cfg_a.c == RobotDefaultStateCfg()
     assert isinstance(cfg_b.c, type(MISSING))
-    assert cfg_a.m.rot == (2.0, 0.0, 0.0, 0.0)
-    assert cfg_b.m.rot == (1.0, 0.0, 0.0, 0.0)
+    assert cfg_a.m.rot == (0.0, 0.0, 0.0, 2.0)
+    assert cfg_b.m.rot == (0.0, 0.0, 0.0, 1.0)
     assert isinstance(cfg_a.j, type(MISSING))
     assert cfg_b.j == ["3", "4"]
     assert cfg_a.i == ["a", "b"]
@@ -1077,3 +1119,29 @@ def test_validity():
 
     # check that no more than the expected missing fields are in the error message
     assert len(error_message.split("\n")) - 2 == len(validity_expected_fields)
+
+
+def test_dir_resolution_in_subclass():
+    """Test that {DIR} in inherited fields resolves relative to the declaring class's module."""
+
+    @configclass
+    class ParentCfg:
+        class_type: str = "{DIR}.my_module:MyClass"
+        name: str = "default"
+
+    @configclass
+    class ChildCfg(ParentCfg):
+        extra: int = 42
+
+    # Pretend the parent lives in a real package and the child lives in a test file
+    ParentCfg.__module__ = "some_package.sub_package.parent_cfg"
+    ChildCfg.__module__ = "test_some_feature"
+
+    parent = ParentCfg.__new__(ParentCfg)
+    child = ChildCfg.__new__(ChildCfg)
+
+    # class_type should resolve to the parent's module dir in both cases
+    assert _field_module_dir(parent, "class_type") == "some_package.sub_package"
+    assert _field_module_dir(child, "class_type") == "some_package.sub_package"
+    # extra should resolve to the child's module dir
+    assert _field_module_dir(child, "extra") == "test_some_feature"
