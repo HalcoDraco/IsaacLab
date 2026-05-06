@@ -22,7 +22,7 @@ def main(env: SocketEnvClient, task: str, num_envs: int, steps: int):
             # sample actions from -1 to 1
             actions = 2 * torch.rand(env.action_space.shape, device=env.device) - 1
             # apply actions
-            obs, rewards, terminated, truncated = env.step(actions)
+            obs, rewards, terminated, truncated, _ = env.step(actions)
 
             alive = ~dones
             cumulative_rewards += rewards * alive.float()

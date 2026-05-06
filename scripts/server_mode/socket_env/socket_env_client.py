@@ -15,6 +15,8 @@ class SocketEnvClient(SocketEnv):
         self._num_envs: int | None = None
         self._observation_space: gym.spaces.Space = None
         self._action_space: gym.spaces.Space = None
+        self._state_space: object | None = None
+        self._asymmetric_obs: bool | None = None
         self._env_cfg_overrides: dict | None = None
         self._generate_video: bool | None = None
         self._max_episode_length: int | None = None
@@ -40,6 +42,18 @@ class SocketEnvClient(SocketEnv):
         if not self.is_made:
             raise RuntimeError("Environment not initialized.")
         return self._action_space
+
+    @property
+    def state_space(self):
+        if not self.is_made:
+            raise RuntimeError("Environment not initialized.")
+        return self._state_space
+
+    @property
+    def asymmetric_obs(self):
+        if not self.is_made:
+            raise RuntimeError("Environment not initialized.")
+        return self._asymmetric_obs
     
     @property
     def num_envs(self):
@@ -82,6 +96,7 @@ class SocketEnvClient(SocketEnv):
     
     def _receive_buffers_metadata(self):
         self._obs_buffer = self._receive_tensor_metadata()
+        self._state_buffer = self._receive_tensor_metadata()
         self._rewards_buffer = self._receive_tensor_metadata()
         self._terminated_buffer = self._receive_tensor_metadata()
         self._truncated_buffer = self._receive_tensor_metadata()
@@ -126,8 +141,33 @@ class SocketEnvClient(SocketEnv):
         self._observation_space = self._receive_pickled_object()
         self._action_space = self._receive_pickled_object()
         self._max_episode_length = self._receive_pickled_object()
+        self._asymmetric_obs = self._receive_pickled_object()
+        self._state_space = self._receive_pickled_object()
 
-    def step(self, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def step(
+        self, actions: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict]:
+        """Take an environment step on the server with the given actions.
+        
+        Parameters
+        ----------
+        actions: torch.Tensor
+            A tensor of shape (num_envs, action_dim) containing the actions to take in each environment.
+
+        Returns
+        -------
+        obs: torch.Tensor
+            A tensor of shape (num_envs, obs_dim) containing the observations after taking the actions.
+        rewards: torch.Tensor
+            A tensor of shape (num_envs,) containing the rewards received after taking the actions.
+        terminated: torch.Tensor
+            A boolean tensor of shape (num_envs,) indicating which environments have terminated.
+        truncated: torch.Tensor
+            A boolean tensor of shape (num_envs,) indicating which environments have been truncated due to reaching the maximum episode length.
+        extras: dict
+            A dict containing extra data. If asymmetric observations are enabled, this includes
+            ``{"full_state": <tensor>}``.
+        """
 
         if self._obs_buffer is None or \
             self._rewards_buffer is None or \
@@ -140,7 +180,11 @@ class SocketEnvClient(SocketEnv):
         torch.cuda.synchronize()
         self._socket_send_receive(self.STEP)
 
-        return self._obs_buffer, self._rewards_buffer, self._terminated_buffer, self._truncated_buffer
+        extras: dict = {}
+        if self._asymmetric_obs:
+            extras = {"full_state": self._state_buffer}
+
+        return self._obs_buffer, self._rewards_buffer, self._terminated_buffer, self._truncated_buffer, extras
 
     def reset(self) -> torch.Tensor:
         
@@ -160,6 +204,7 @@ class SocketEnvClient(SocketEnv):
 
         # Release shared-memory buffer references so they can be freed.
         self._obs_buffer = None
+        self._state_buffer = None
         self._rewards_buffer = None
         self._terminated_buffer = None
         self._truncated_buffer = None
@@ -172,6 +217,8 @@ class SocketEnvClient(SocketEnv):
         self._max_episode_length = None
         self._observation_space = None
         self._action_space = None
+        self._state_space = None
+        self._asymmetric_obs = None
         self.is_made = False
         
     def disconnect(self):

@@ -23,6 +23,7 @@ class SocketEnv(ABC):
         self.disable_fabric = disable_fabric
 
         self._obs_buffer: torch.Tensor | None = None
+        self._state_buffer: torch.Tensor | None = None
         self._rewards_buffer: torch.Tensor | None = None
         self._terminated_buffer: torch.Tensor | None = None
         self._truncated_buffer: torch.Tensor | None = None

@@ -20,7 +20,7 @@ def main(env: SocketEnvClient, task: str, num_envs: int, steps: int, benchmark_i
             # sample actions from -1 to 1
             actions = 2 * torch.rand(env.action_space.shape, device=env.device) - 1
             # apply actions
-            obs, rewards, terminated, truncated = env.step(actions)
+            obs, rewards, terminated, truncated, _ = env.step(actions)
         
         if step % benchmark_interval == 0:
             print(f"[INFO]: Steps/s = {benchmark_interval / (time.perf_counter() - start):.2f}")

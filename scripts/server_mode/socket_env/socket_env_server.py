@@ -50,12 +50,14 @@ class SocketEnvServer(SocketEnv):
 
     def _send_buffers_metadata(self):
         if self._obs_buffer is None or \
+            self._state_buffer is None or \
             self._rewards_buffer is None or \
             self._terminated_buffer is None or \
             self._truncated_buffer is None or \
             self._action_buffer is None:
             raise RuntimeError("Buffers not initialized.")
         self._send_tensor_metadata(self._obs_buffer)
+        self._send_tensor_metadata(self._state_buffer)
         self._send_tensor_metadata(self._rewards_buffer)
         self._send_tensor_metadata(self._terminated_buffer)
         self._send_tensor_metadata(self._truncated_buffer)
@@ -108,6 +110,13 @@ class SocketEnvServer(SocketEnv):
 
         # Create buffers for IPC sharing
         self._obs_buffer = torch.empty(self.env.observation_space.shape, device=self.device)
+
+        is_asymmetric = self.env.unwrapped.state_space is not None
+        if is_asymmetric:
+            state_shape = self.env.unwrapped.state_space.shape
+        else:
+            state_shape = (num_envs, 1)
+        self._state_buffer = torch.zeros(state_shape, device=self.device)
         self._rewards_buffer = torch.empty((num_envs,), device=self.device)
         self._terminated_buffer = torch.empty((num_envs,), dtype=torch.bool, device=self.device)
         self._truncated_buffer = torch.empty((num_envs,), dtype=torch.bool, device=self.device)
@@ -118,6 +127,8 @@ class SocketEnvServer(SocketEnv):
         self._send_pickled_object(self.env.observation_space)
         self._send_pickled_object(self.env.action_space)
         self._send_pickled_object(self.env.unwrapped.max_episode_length)
+        self._send_pickled_object(is_asymmetric)
+        self._send_pickled_object(self.env.unwrapped.state_space)
 
     def _step(self):
         if self.env is None:
@@ -128,12 +139,17 @@ class SocketEnvServer(SocketEnv):
             self._rewards_buffer is None or \
             self._terminated_buffer is None or \
             self._truncated_buffer is None or \
-            self._action_buffer is None:
+            self._action_buffer is None or \
+            self._state_buffer is None:
             raise RuntimeError("Buffers not initialized.")
         
-        obs_dict, rewards, terminated, truncated, infos = self.env.step(self._action_buffer)
+        obs_dict, rewards, terminated, truncated, extras = self.env.step(self._action_buffer)
         obs = obs_dict["policy"] if isinstance(obs_dict, dict) else obs_dict
         self._obs_buffer.copy_(obs)
+        if self.env.unwrapped.state_space is not None:
+            if "critic" not in obs_dict:
+                raise ValueError("Asymmetric observation dict must contain 'critic' key.")
+            self._state_buffer.copy_(obs_dict["critic"])
         self._rewards_buffer.copy_(rewards)
         self._terminated_buffer.copy_(terminated)
         self._truncated_buffer.copy_(truncated)
@@ -201,6 +217,7 @@ class SocketEnvServer(SocketEnv):
 
         # 5. Release shared buffers.
         self._obs_buffer = None
+        self._state_buffer = None
         self._rewards_buffer = None
         self._terminated_buffer = None
         self._truncated_buffer = None
