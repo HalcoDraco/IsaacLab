@@ -13,9 +13,9 @@ class SocketEnvClient(SocketEnv):
 
         self._isaac_task: str | None = None
         self._num_envs: int | None = None
-        self._observation_space: gym.spaces.Space = None
-        self._action_space: gym.spaces.Space = None
-        self._state_space: object | None = None
+        self._observation_space: gym.spaces.Space | None = None
+        self._action_space: gym.spaces.Space | None = None
+        self._state_space: gym.spaces.Space | None = None
         self._asymmetric_obs: bool | None = None
         self._env_cfg_overrides: dict | None = None
         self._generate_video: bool | None = None
@@ -186,13 +186,27 @@ class SocketEnvClient(SocketEnv):
 
         return self._obs_buffer, self._rewards_buffer, self._terminated_buffer, self._truncated_buffer, extras
 
-    def reset(self) -> torch.Tensor:
+    def reset(self) -> tuple[torch.Tensor, dict]:
+        """Reset the environments on the server.
+
+        Returns
+        -------
+        obs: torch.Tensor
+            A tensor of shape (num_envs, obs_dim) containing the initial observations after reset.
+        extras: dict
+            A dict containing extra data. If asymmetric observations are enabled, this includes
+            ``{"full_state": <tensor>}``.
+        """
         
         if self._obs_buffer is None:
             raise RuntimeError("Observation buffer not initialized.")
         
         self._socket_send_receive(self.RESET)
-        return self._obs_buffer
+
+        extras: dict = {}
+        if self._asymmetric_obs:
+            extras = {"full_state": self._state_buffer}
+        return self._obs_buffer, extras
 
     def close(self):
         """Close the current environment on the server.
