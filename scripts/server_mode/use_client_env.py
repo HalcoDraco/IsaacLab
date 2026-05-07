@@ -9,7 +9,7 @@ def main(env: SocketEnvClient, task: str, num_envs: int, steps: int):
     print(f"[INFO]: Gym observation space: {env.observation_space}")
     print(f"[INFO]: Gym action space: {env.action_space}")
     # reset environment
-    obs = env.reset()
+    obs, extras = env.reset()
 
     cumulative_rewards = torch.zeros(env.num_envs, device=env.device)
     dones = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)

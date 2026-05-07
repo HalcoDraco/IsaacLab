@@ -10,7 +10,7 @@ def main(env: SocketEnvClient, task: str, num_envs: int, steps: int, benchmark_i
     print(f"[INFO]: Gym observation space: {env.observation_space}")
     print(f"[INFO]: Gym action space: {env.action_space}")
     # reset environment
-    obs = env.reset()
+    obs, extras = env.reset()
 
     start = time.perf_counter()
     # simulate environment
