@@ -146,7 +146,7 @@ class SocketEnvClient(SocketEnv):
 
     def step(
         self, actions: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Take an environment step on the server with the given actions.
         
         Parameters
@@ -164,7 +164,7 @@ class SocketEnvClient(SocketEnv):
             A boolean tensor of shape (num_envs,) indicating which environments have terminated.
         truncated: torch.Tensor
             A boolean tensor of shape (num_envs,) indicating which environments have been truncated due to reaching the maximum episode length.
-        extras: dict
+        extras: dict[str, torch.Tensor]
             A dict containing extra data. If asymmetric observations are enabled, this includes
             ``{"full_state": <tensor>}``.
         """
@@ -180,20 +180,20 @@ class SocketEnvClient(SocketEnv):
         torch.cuda.synchronize()
         self._socket_send_receive(self.STEP)
 
-        extras: dict = {}
+        extras: dict[str, torch.Tensor] = {}
         if self._asymmetric_obs:
             extras = {"full_state": self._state_buffer}
 
         return self._obs_buffer, self._rewards_buffer, self._terminated_buffer, self._truncated_buffer, extras
 
-    def reset(self) -> tuple[torch.Tensor, dict]:
+    def reset(self) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Reset the environments on the server.
 
         Returns
         -------
         obs: torch.Tensor
             A tensor of shape (num_envs, obs_dim) containing the initial observations after reset.
-        extras: dict
+        extras: dict[str, torch.Tensor]
             A dict containing extra data. If asymmetric observations are enabled, this includes
             ``{"full_state": <tensor>}``.
         """
@@ -203,7 +203,7 @@ class SocketEnvClient(SocketEnv):
         
         self._socket_send_receive(self.RESET)
 
-        extras: dict = {}
+        extras: dict[str, torch.Tensor] = {}
         if self._asymmetric_obs:
             extras = {"full_state": self._state_buffer}
         return self._obs_buffer, extras
