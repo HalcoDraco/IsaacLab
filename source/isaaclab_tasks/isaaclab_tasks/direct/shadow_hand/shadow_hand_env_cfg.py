@@ -122,7 +122,8 @@ class ShadowHandEnvCfg(DirectRLEnvCfg):
     action_space = 20
     observation_space = 157  # (full)
     state_space = 0
-    asymmetric_obs = False
+    asymmetric_obs = True
+    state_space = 187
     obs_type = "full"
 
     # simulation
