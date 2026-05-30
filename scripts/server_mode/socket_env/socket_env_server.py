@@ -167,6 +167,10 @@ class SocketEnvServer(SocketEnv):
         obs_dict, _ = self.env.reset()
         obs = obs_dict["policy"] if isinstance(obs_dict, dict) else obs_dict
         self._obs_buffer.copy_(obs)
+        if self.env.unwrapped.state_space is not None:
+            if "critic" not in obs_dict:
+                raise ValueError("Asymmetric observation dict must contain 'critic' key.")
+            self._state_buffer.copy_(obs_dict["critic"])
         torch.cuda.synchronize()
         self._sock.sendall(self.RESET)
 
