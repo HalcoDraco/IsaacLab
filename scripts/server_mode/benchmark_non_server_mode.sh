@@ -7,7 +7,6 @@ cd /workspace/isaaclab
 run_benchmark() {
     local task="$1"
     local num_envs="$2"
-    local steps="$3"
     local result_file
     local log_file
     local exit_code
@@ -20,7 +19,6 @@ run_benchmark() {
         --headless \
         --task "$task" \
         --num_envs "$num_envs" \
-        --steps "$steps" \
         --result_file "$result_file" \
         >"$log_file" 2>&1
     exit_code=$?
@@ -47,18 +45,18 @@ run_benchmark() {
 
 benchmark_task() {
     local task="$1"
-    local steps="$2"
-    local results_file="$3"
-    shift 3
+    local results_file="$2"
+    shift 2
 
     local num_envs_pow
     local num_envs
     local total_time
 
+    local STEPS=10000
     for num_envs_pow in "$@"; do
         num_envs=$((2 ** num_envs_pow))
         echo "Benchmarking $task with $num_envs envs..."
-        total_time="$(run_benchmark "$task" "$num_envs" "$steps")"
+        total_time="$(run_benchmark "$task" "$num_envs")"
 
         if [[ "$total_time" == "-1" ]]; then
             echo "Steps/s for $num_envs envs: -1"
@@ -67,7 +65,7 @@ benchmark_task() {
         fi
 
         local steps_per_second
-        steps_per_second="$(awk -v steps="$steps" -v total_time="$total_time" 'BEGIN { if (total_time > 0) print steps / total_time; else print -1 }')"
+        steps_per_second="$(awk -v steps="$STEPS" -v total_time="$total_time" 'BEGIN { if (total_time > 0) print steps / total_time; else print -1 }')"
         echo "Steps/s for $num_envs envs: $steps_per_second"
         printf '%s\t%s\t%s\n' "$task" "$num_envs" "$steps_per_second" >> "$results_file"
         sleep 5
@@ -75,9 +73,7 @@ benchmark_task() {
 }
 
 benchmark_multiple_tasks() {
-    local steps="$1"
-    local results_file="$2"
-    shift
+    local results_file="$1"
     shift
 
     local task
@@ -88,19 +84,17 @@ benchmark_multiple_tasks() {
         IFS='|' read -r task exponents <<< "$task_spec"
         echo "Benchmarking task $task..."
         # shellcheck disable=SC2206
-        benchmark_task "$task" "$steps" "$results_file" ${exponents}
+        benchmark_task "$task" "$results_file" ${exponents}
     done
 }
 
 main() {
-    local steps=1000
     local results_file
     local final_results
 
     results_file="$(mktemp)"
 
     benchmark_multiple_tasks \
-        "$steps" \
         "$results_file" \
         "Isaac-Cartpole-Direct-v0|0 1 2 3 4 5 6 7 8 9 10 11 12 13 14" \
         "Isaac-Ant-Direct-v0|0 1 2 3 4 5 6 7 8 9 10 11 12 13 14" \

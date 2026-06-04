@@ -15,9 +15,6 @@ parser.add_argument(
     "--num_envs", type=int, default=1, help="Number of environments to run in parallel."
 )
 parser.add_argument(
-    "--steps", type=int, default=1000, help="Number of steps to run the environment loop for."
-)
-parser.add_argument(
     "--result_file",
     type=str,
     default=None,
@@ -44,7 +41,7 @@ import time
 
 task = args_cli.task
 num_envs = args_cli.num_envs
-steps = args_cli.steps
+steps = 10000
 disable_fabric = args_cli.disable_fabric
 result_file = args_cli.result_file
 
@@ -67,6 +64,12 @@ def env_loop(task: str, num_envs: int, steps: int, benchmark_interval: int | Non
         print(f"[INFO]: Gym action space: {env.action_space}")
         # reset environment
         obs, extras = env.reset()
+
+        # 100 steps warmup
+        for _ in range(100):
+            with torch.inference_mode():
+                actions = 2 * torch.rand(env.action_space.shape, device=device) - 1
+                obs, rewards, terminated, truncated, extras = env.step(actions)
 
         global_start = time.perf_counter()
         start = time.perf_counter()

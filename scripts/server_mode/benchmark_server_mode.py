@@ -15,6 +15,12 @@ def env_loop(task: str, num_envs: int, steps: int, benchmark_interval: int | Non
         # reset environment
         obs, extras = env.reset()
 
+        # 100 steps warmup
+        for _ in range(100):
+            with torch.inference_mode():
+                actions = 2 * torch.rand(env.action_space.shape, device=env.device) - 1
+                obs, rewards, terminated, truncated, extras = env.step(actions)
+
         global_start = time.perf_counter()
         start = time.perf_counter()
         # simulate environment
