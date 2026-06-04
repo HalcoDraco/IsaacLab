@@ -51,24 +51,45 @@ benchmark_task() {
     local num_envs_pow
     local num_envs
     local total_time
+    local run
+    local runs=3
+    local sum_time
+    local avg_time
+    local valid_runs
 
     local STEPS=10000
     for num_envs_pow in "$@"; do
         num_envs=$((2 ** num_envs_pow))
         echo "Benchmarking $task with $num_envs envs..."
-        total_time="$(run_benchmark "$task" "$num_envs")"
+        sum_time=0
+        valid_runs=0
 
-        if [[ "$total_time" == "-1" ]]; then
+        for run in $(seq 1 "$runs"); do
+            echo "Run $run/$runs for $num_envs envs..."
+            total_time="$(run_benchmark "$task" "$num_envs")"
+
+            if [[ "$total_time" == "-1" ]]; then
+                echo "Run $run failed."
+                break
+            fi
+
+            echo "Steps/s for run $run: $(awk -v steps="$STEPS" -v total_time="$total_time" 'BEGIN { print steps / total_time }')"
+            sum_time="$(awk -v sum="$sum_time" -v total_time="$total_time" 'BEGIN { print sum + total_time }')"
+            valid_runs=$((valid_runs + 1))
+            sleep 8
+        done
+
+        if [[ "$valid_runs" -eq "$runs" ]]; then
+            avg_time="$(awk -v sum="$sum_time" -v runs="$runs" 'BEGIN { print sum / runs }')"
+            local steps_per_second
+            steps_per_second="$(awk -v steps="$STEPS" -v total_time="$avg_time" 'BEGIN { if (total_time > 0) print steps / total_time; else print -1 }')"
+            echo "Average Steps/s for $num_envs envs: $steps_per_second"
+            printf '%s\t%s\t%s\n' "$task" "$num_envs" "$steps_per_second" >> "$results_file"
+        else
             echo "Steps/s for $num_envs envs: -1"
             printf '%s\t%s\t%s\n' "$task" "$num_envs" "-1" >> "$results_file"
             break
         fi
-
-        local steps_per_second
-        steps_per_second="$(awk -v steps="$STEPS" -v total_time="$total_time" 'BEGIN { if (total_time > 0) print steps / total_time; else print -1 }')"
-        echo "Steps/s for $num_envs envs: $steps_per_second"
-        printf '%s\t%s\t%s\n' "$task" "$num_envs" "$steps_per_second" >> "$results_file"
-        sleep 5
     done
 }
 
@@ -91,8 +112,10 @@ benchmark_multiple_tasks() {
 main() {
     local results_file
     local final_results
+    local output_file
 
     results_file="$(mktemp)"
+    output_file="benchmark_non_server_mode_results.txt"
 
     benchmark_multiple_tasks \
         "$results_file" \
@@ -120,6 +143,8 @@ PY
 
     echo "Final results:"
     echo "$final_results"
+    printf '%s\n' "$final_results" > "$output_file"
+    echo "Results saved to $output_file"
 }
 
 main "$@"

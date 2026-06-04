@@ -105,7 +105,7 @@ if __name__ == "__main__":
     if result_file is not None:
         Path(result_file).write_text(f"{total_time}\n", encoding="utf-8")
     else:
-        print(total_time)
+        print(steps/total_time, "steps/s")
     simulation_app.close()
     
     
