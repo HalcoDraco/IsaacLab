@@ -115,7 +115,7 @@ main() {
     local output_file
 
     results_file="$(mktemp)"
-    output_file="benchmark_non_server_mode_results.txt"
+    output_file="/workspace/isaaclab/scripts/server_mode/benchmark_non_server_mode_results.txt"
 
     benchmark_multiple_tasks \
         "$results_file" \
