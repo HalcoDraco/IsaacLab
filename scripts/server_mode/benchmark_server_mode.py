@@ -49,8 +49,27 @@ def env_loop(task: str, num_envs: int, steps: int, benchmark_interval: int | Non
 
     return total_time
 
-def benchmark_task(task: str, num_envs_pow2: tuple[int, ...], steps: int, num_runs: int = 3):
+def save_results(all_results: dict, output_path: str):
+    # Best-effort: a write hiccup must not abort the benchmark run.
+    try:
+        with open(output_path, "w", encoding="utf-8") as file_handle:
+            file_handle.write(f"{all_results}\n")
+    except OSError as exc:
+        print(f"Warning: failed to persist partial results to {output_path}: {exc}")
+
+def benchmark_task(
+    task: str,
+    num_envs_pow2: tuple[int, ...],
+    steps: int,
+    num_runs: int = 3,
+    all_results: dict | None = None,
+    output_path: str | None = None,
+):
     json_results = {}
+    # Expose this task's (initially empty) results through the shared dict so
+    # partial results are persisted after every iteration below.
+    if all_results is not None:
+        all_results[task] = json_results
     for num_envs_pow in num_envs_pow2:
         num_envs = 2 ** num_envs_pow
         print(f"Benchmarking with {num_envs} envs...")
@@ -69,18 +88,28 @@ def benchmark_task(task: str, num_envs_pow2: tuple[int, ...], steps: int, num_ru
             avg_time = sum(run_times) / num_runs
             json_results[num_envs] = steps / avg_time
             print(f"Average Steps/s for {num_envs} envs: {json_results[num_envs]}")
+            failed = False
         else:
             json_results[num_envs] = -1
             print(f"Benchmarking failed for {num_envs} envs. Stopping further benchmarks.")
+            failed = True
+
+        # Persist partial results after each iteration so they survive a crash.
+        if all_results is not None and output_path is not None:
+            save_results(all_results, output_path)
+
+        if failed:
             break
-        
+
     return json_results
 
-def benchmark_multiple_tasks(tasks_envs: dict[str, tuple[int, ...]], steps: int):
+def benchmark_multiple_tasks(tasks_envs: dict[str, tuple[int, ...]], steps: int, output_path: str | None = None):
     all_results = {}
     for task in tasks_envs:
         print(f"Benchmarking task {task}...")
-        all_results[task] = benchmark_task(task, tasks_envs[task], steps)
+        all_results[task] = benchmark_task(
+            task, tasks_envs[task], steps, all_results=all_results, output_path=output_path
+        )
     return all_results
 
 def main():
@@ -90,12 +119,11 @@ def main():
         "Isaac-Repose-Cube-Shadow-Direct-v0": tuple(range(0, 15)),
     }
     steps = 10000
-    results = benchmark_multiple_tasks(tasks_envs, steps)
     output_path = "benchmark_server_mode_results.txt"
+    results = benchmark_multiple_tasks(tasks_envs, steps, output_path=output_path)
     print("Final results:")
     print(results)
-    with open(output_path, "w", encoding="utf-8") as file_handle:
-        file_handle.write(f"{results}\n")
+    save_results(results, output_path)
     print(f"Results saved to {output_path}")
 
 if __name__ == "__main__":

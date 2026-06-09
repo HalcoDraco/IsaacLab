@@ -4,6 +4,8 @@ set -euo pipefail
 
 cd /workspace/isaaclab
 
+OUTPUT_FILE="/workspace/isaaclab/scripts/server_mode/benchmark_non_server_mode_results.txt"
+
 run_benchmark() {
     local task="$1"
     local num_envs="$2"
@@ -43,6 +45,25 @@ run_benchmark() {
     rm -f "$result_file" "$log_file"
 }
 
+format_results() {
+    local results_file="$1"
+
+    /workspace/isaaclab/isaaclab.sh -p - "$results_file" <<'PY'
+import sys
+from collections import defaultdict
+
+results_path = sys.argv[1]
+results = defaultdict(dict)
+
+with open(results_path, encoding='utf-8') as file_handle:
+    for line in file_handle:
+        task, num_envs, steps_per_second = line.rstrip('\n').split('\t')
+        results[task][int(num_envs)] = float(steps_per_second)
+
+print(dict(results))
+PY
+}
+
 benchmark_task() {
     local task="$1"
     local results_file="$2"
@@ -56,6 +77,7 @@ benchmark_task() {
     local sum_time
     local avg_time
     local valid_runs
+    local partial_results
 
     local STEPS=10000
     for num_envs_pow in "$@"; do
@@ -88,6 +110,17 @@ benchmark_task() {
         else
             echo "Steps/s for $num_envs envs: -1"
             printf '%s\t%s\t%s\n' "$task" "$num_envs" "-1" >> "$results_file"
+        fi
+
+        # Persist partial results after each iteration so they survive a crash
+        # (best-effort: a conversion hiccup must not abort the benchmark run).
+        if partial_results="$(format_results "$results_file")"; then
+            printf '%s\n' "$partial_results" > "$OUTPUT_FILE"
+        else
+            echo "Warning: failed to persist partial results to $OUTPUT_FILE" >&2
+        fi
+
+        if [[ "$valid_runs" -ne "$runs" ]]; then
             break
         fi
     done
@@ -112,10 +145,8 @@ benchmark_multiple_tasks() {
 main() {
     local results_file
     local final_results
-    local output_file
 
     results_file="$(mktemp)"
-    output_file="/workspace/isaaclab/scripts/server_mode/benchmark_non_server_mode_results.txt"
 
     benchmark_multiple_tasks \
         "$results_file" \
@@ -123,28 +154,14 @@ main() {
         "Isaac-Ant-Direct-v0|0 1 2 3 4 5 6 7 8 9 10 11 12 13 14" \
         "Isaac-Repose-Cube-Shadow-Direct-v0|0 1 2 3 4 5 6 7 8 9 10 11 12 13 14"
 
-    final_results="$(/workspace/isaaclab/isaaclab.sh -p - "$results_file" <<'PY'
-import sys
-from collections import defaultdict
-
-results_path = sys.argv[1]
-results = defaultdict(dict)
-
-with open(results_path, encoding='utf-8') as file_handle:
-    for line in file_handle:
-        task, num_envs, steps_per_second = line.rstrip('\n').split('\t')
-        results[task][int(num_envs)] = float(steps_per_second)
-
-print(dict(results))
-PY
-)"
+    final_results="$(format_results "$results_file")"
 
     rm -f "$results_file"
 
     echo "Final results:"
     echo "$final_results"
-    printf '%s\n' "$final_results" > "$output_file"
-    echo "Results saved to $output_file"
+    printf '%s\n' "$final_results" > "$OUTPUT_FILE"
+    echo "Results saved to $OUTPUT_FILE"
 }
 
 main "$@"
